@@ -1,8 +1,28 @@
-The ``assetgen`` tool generates static assets for web development. It is
-intended as a replacement for the various ad-hoc scripts that often gets written
-to build and manage JavaScript/CSS files.
+Assetgen is intended as a replacement for the various ad-hoc scripts that often
+get written to build/manage JavaScript/CSS files.
 
 **Features**
+
+The default support includes:
+
+* Compiling CoffeeScript source files into JavaScript.
+
+* Minifying JavaScript through UglifyJS -- including the new constant folding
+  support.
+
+* Compiling and minifying SASS stylesheets into CSS.
+
+* Generating variants of the same stylesheet for both internationalisation
+  (flipping left to right) and for automatically embedding images as ``data:``
+  URIs to minimise latency.
+
+* Concatenating multiple source files into one file to minimise the number of
+  HTTP requests.
+
+* Creating distinct files with the hash of the content embedded in the filename
+  so as to work effectively with web caches.
+
+* Creating a JSON manifest file for use in your web app's static handlers.
 
 The tool is driven by the configuration you specify in an ``assetgen.yaml``
 file, e.g.
@@ -67,27 +87,6 @@ file, e.g.
    profile.dev:
      css.compressed: false
      js.compressed: false
-
-The default support includes:
-
-* Compiling CoffeeScript source files into JavaScript.
-
-* Minifying JavaScript through UglifyJS -- including the new constant folding
-  support.
-
-* Compiling and minifying SASS stylesheets into CSS.
-
-* Generating variants of the same stylesheet for both internationalisation
-  (flipping left to right) and for automatically embedding images as ``data:``
-  URIs to minimise latency.
-
-* Concatenating multiple source files into one file to minimise the number of
-  HTTP requests.
-
-* Creating distinct files with the hash of the content embedded in the filename
-  so as to work effectively with web caches.
-
-* Creating a JSON manifest file for use in your web app's static handlers.
 
 You can even control which config options gets used by specifying the
 ``--profile`` parameter. This will override default values with the values
