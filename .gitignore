@@ -1,0 +1,72 @@
+# specific files/directories
+
+build
+dist
+assetgen.egg-info
+
+# minified css/js files
+
+*.min.js
+*.min.css
+
+# hidden files/directories
+
+.bzr
+.bzrignore
+.DS_Store
+.hg
+.hgignore
+.lock-wscript
+.sass-cache
+.sconsign*
+.svn
+
+# file patterns
+
+*#*
+*~
+*.5
+*.6
+*.8
+*.a
+*.dylib
+*.egg
+*.jar
+*.la
+*.lo
+*.o
+*.out
+*.pyc
+*.pyo
+*.so
+*.swp
+*.tar.bz2
+*.tar.gz
+*.tbz
+*.tbz2
+*.tgz
+*.rdb
+
+_testmain.go
+
+# file patterns (xcode)
+
+*.mode1v3
+*.mode2v3
+*~.nib
+*.pbxuser
+*.perspective
+*.perspectivev3
+*.swp
+*.tm_build_errors
+
+# file patterns (windows)
+
+*.dll
+*.exe
+*.ilk
+*.lib
+*.ncb
+*.pdb
+*.suo
+*.vcproj.*.*.user
