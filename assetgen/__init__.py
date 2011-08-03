@@ -228,7 +228,7 @@ class CSSAsset(Asset):
         return self.cache.setdefault(path, (data, 1))
 
     def get_embed_url(self, path, data=None):
-        if data is None:
+        if data is None or not self.runner.hashed:
             digest = ''
         else:
             digest = sha1(data).hexdigest() + '-'
