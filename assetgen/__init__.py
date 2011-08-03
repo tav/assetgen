@@ -252,9 +252,6 @@ class CSSAsset(Asset):
         for bidi in self.todo:
             output = []; out = output.append
             for source in self.sources:
-                if isinstance(source, Raw):
-                    out(source.text)
-                    continue
                 if source.endswith('.sass'):
                     cmd = ['sass']
                     if bidi:
@@ -263,6 +260,8 @@ class CSSAsset(Asset):
                         cmd.extend(['--style', 'compressed'])
                     cmd.append(source)
                     out(do(cmd))
+                else:
+                    out(read(source))
             output = ''.join(output)
             if self.embed_path_root and self.embed_url_base:
                 self.emit(
