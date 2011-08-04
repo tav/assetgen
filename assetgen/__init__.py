@@ -252,7 +252,9 @@ class CSSAsset(Asset):
         for bidi in self.todo:
             output = []; out = output.append
             for source in self.sources:
-                if source.endswith('.sass'):
+                if isinstance(source, Raw):
+                    out(source.text)
+                elif source.endswith('.sass'):
                     cmd = ['sass']
                     if bidi:
                         cmd.append('--flip')
@@ -316,7 +318,6 @@ register_handler('js', JSAsset)
 class AssetGenRunner(object):
     """Encapsulated asset generator runner."""
 
-    manifest_changed = None
     manifest_path = None
     virgin = True
 
@@ -610,20 +611,26 @@ class AssetGenRunner(object):
     def run(self):
         chdir(self.base_dir)
         if self.virgin:
+            change = True
             if not isdir(self.output_dir):
                 makedirs(self.output_dir)
             self.manifest = self.data.setdefault('manifest', {})
             self.output_data = self.data.setdefault('output_data', {})
             self.prereq_data = self.data.setdefault('prereq_data', {})
             self.virgin = False
+        else:
+            change = False
+        self.manifest_changed = False
         self.mtime_cache = {}
         self.prereq = True
         for asset in self.prereqs:
             if not asset.is_fresh():
+                change = True
                 asset.generate()
         self.prereq = None
         for asset in self.generate:
             if not asset.is_fresh():
+                change = True
                 asset.generate()
         manifest_path = self.manifest_path
         if manifest_path and self.manifest_changed:
@@ -631,10 +638,10 @@ class AssetGenRunner(object):
             manifest_file = open(manifest_path, 'wb')
             encode_json(self.manifest, manifest_file)
             manifest_file.close()
-        data_file = open(self.data_path, 'wb')
-        dump(self.data, data_file, 2)
-        data_file.close()
-        return
+        if change:
+            data_file = open(self.data_path, 'wb')
+            dump(self.data, data_file, 2)
+            data_file.close()
 
 # ------------------------------------------------------------------------------
 # Main Runner
@@ -724,9 +731,14 @@ def main(argv=None):
             sys.exit()
         files = [join(root, file) for file in files]
 
-    generators = [
-        AssetGenRunner(realpath(file), profile, force) for file in files
-        ]
+    files = [realpath(file) for file in files]
+
+    if watch:
+        mtime_cache = {}
+        for file in files:
+            mtime_cache[file] = stat(file)[ST_MTIME]
+
+    generators = [AssetGenRunner(file, profile, force) for file in files]
 
     if clean:
         for assetgen in generators:
@@ -738,6 +750,15 @@ def main(argv=None):
             assetgen.run()
         if watch:
             sleep(1)
+            changed = False
+            for idx, file in enumerate(files):
+                mtime = stat(file)[ST_MTIME]
+                if mtime > mtime_cache[file]:
+                    mtime_cache[file] = mtime
+                    generators[idx] = AssetGenRunner(file, profile, force)
+                    changed = True
+            if changed:
+                sleep(1)
         else:
             break
 
