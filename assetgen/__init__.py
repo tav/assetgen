@@ -262,6 +262,10 @@ class CSSAsset(Asset):
                         cmd.extend(['--style', 'compressed'])
                     cmd.append(source)
                     out(do(cmd))
+                elif source.endswith('.less'):
+                    cmd = ['lessc']
+                    cmd.append(source)
+                    out(do(cmd))
                 else:
                     out(read(source))
             output = ''.join(output)
