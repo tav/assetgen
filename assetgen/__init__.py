@@ -51,6 +51,7 @@ DEFAULTS = {
     'css.embed.extension': '.data',
     'css.embed.url.template': "%(url_base)s%(prefix)s/%(hash)s%(filename)s",
     'js.compressed': True,
+    'js.bare': True,
     'output.template': '%(hash)s-%(filename)s'
     }
 
@@ -295,7 +296,11 @@ class JSAsset(Asset):
             if isinstance(source, Raw):
                 out(source.text)
             elif source.endswith('.coffee'):
-                out(do(['coffee', '-p', '-b', source]))
+                cmd = ['coffee', '-p']
+                if get_spec('bare'):
+                    cmd.append('-b')
+                cmd.append(source)
+                out(do(cmd))
             else:
                 out(read(source))
         output = ''.join(output)
