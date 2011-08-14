@@ -755,20 +755,23 @@ def main(argv=None):
         sys.exit()
 
     while 1:
-        for assetgen in generators:
-            assetgen.run()
-        if watch:
-            sleep(1)
-            changed = False
-            for idx, file in enumerate(files):
-                mtime = stat(file)[ST_MTIME]
-                if mtime > mtime_cache[file]:
-                    mtime_cache[file] = mtime
-                    generators[idx] = AssetGenRunner(file, profile, force)
-                    changed = True
-            if changed:
+        try:
+            for assetgen in generators:
+                assetgen.run()
+            if watch:
                 sleep(1)
-        else:
+                changed = False
+                for idx, file in enumerate(files):
+                    mtime = stat(file)[ST_MTIME]
+                    if mtime > mtime_cache[file]:
+                        mtime_cache[file] = mtime
+                        generators[idx] = AssetGenRunner(file, profile, force)
+                        changed = True
+                if changed:
+                    sleep(1)
+            else:
+                break
+        except KeyboardInterrupt:
             break
 
 # ------------------------------------------------------------------------------
