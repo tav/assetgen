@@ -28,7 +28,7 @@ except ImportError:
     from pickle import dump, load
 
 from simplejson import dump as encode_json
-from tavutil.env import run_command
+from tavutil.env import run_command as run_command_orig
 from tavutil.optcomplete import autocomplete
 from tavutil.scm import is_git, SCMConfig
 from yaml import safe_load as decode_yaml
@@ -81,6 +81,18 @@ def unlock(path):
 
 register_handler = HANDLERS.__setitem__
 
+class AppExit(Exception):
+    pass
+
+def run_command(*args, **kwargs):
+    kwargs["exit_on_error"] = False
+    kwargs["retcode"] = True
+    ret, retcode = run_command_orig(*args, **kwargs)
+    if retcode:
+        raise AppExit()
+    return ret
+
+
 def read(filename):
     if isinstance(filename, Raw):
         return filename.text
@@ -117,7 +129,7 @@ def stderr(*args, **kwargs):
 
 def exit(msg):
     print "ERROR:", msg
-    sys.exit(1)
+    raise AppExit(msg)
 
 # ------------------------------------------------------------------------------
 # Raw Text Class
@@ -754,25 +766,30 @@ def main(argv=None):
             assetgen.clean()
         sys.exit()
 
-    while 1:
-        try:
-            for assetgen in generators:
-                assetgen.run()
-            if watch:
+
+    if watch:
+        while True:
+            try:
                 sleep(1)
-                changed = False
+                for assetgen in generators:
+                    assetgen.run()
+
                 for idx, file in enumerate(files):
                     mtime = stat(file)[ST_MTIME]
                     if mtime > mtime_cache[file]:
                         mtime_cache[file] = mtime
                         generators[idx] = AssetGenRunner(file, profile, force)
-                        changed = True
-                if changed:
-                    sleep(1)
-            else:
+            except AppExit:
+                pass
+            except KeyboardInterrupt:
                 break
-        except KeyboardInterrupt:
-            break
+    else:
+        try:
+            for assetgen in generators:
+                assetgen.run()
+        except AppExit:
+            sys.exit()
+
 
 # ------------------------------------------------------------------------------
 # Self Runner
