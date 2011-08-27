@@ -14,13 +14,16 @@ from hashlib import sha1
 from mimetypes import guess_type
 from optparse import OptionParser
 from os import chdir, environ, makedirs, remove, stat, walk
-from os.path import dirname, isfile, isdir, join, realpath, split, splitext
+from os.path import dirname, isfile, isdir, join, realpath, split, splitext, basename
 from re import compile as compile_regex
 from subprocess import PIPE, Popen
 from shutil import rmtree
 from stat import ST_MTIME
 from tempfile import gettempdir
 from time import sleep
+from contextlib import contextmanager
+from tempfile import mkdtemp
+from shutil import rmtree, copy
 
 try:
     from cPickle import dump, load
@@ -92,7 +95,6 @@ def run_command(*args, **kwargs):
         raise AppExit()
     return ret
 
-
 def read(filename):
     if isinstance(filename, Raw):
         return filename.text
@@ -130,6 +132,16 @@ def stderr(*args, **kwargs):
 def exit(msg):
     print "ERROR:", msg
     raise AppExit(msg)
+
+@contextmanager
+def tempdir():
+    """Context that hands us a path to a temporary directory, and removes it
+    upon exiting the context"""
+    path = mkdtemp()
+    try:
+        yield path
+    finally:
+        rmtree(path)
 
 # ------------------------------------------------------------------------------
 # Raw Text Class
@@ -279,6 +291,19 @@ class CSSAsset(Asset):
                     cmd = ['lessc']
                     cmd.append(source)
                     out(do(cmd))
+                elif source.endswith('.styl'):
+                    # need to use a tempdir, as stylus only writes to stdout
+                    # if it gets input from stdin.
+                    with tempdir() as td:
+                        tempstyl = join(td, basename(source))
+                        tempcss = tempstyl.replace(".styl", ".css")
+                        copy(source, tempstyl)
+                        cmd = ['stylus']
+                        if get_spec('compressed'):
+                            cmd.append('--compress')
+                        cmd.append(tempstyl)
+                        do(cmd)
+                        out(read(tempcss))
                 else:
                     out(read(source))
             output = ''.join(output)
