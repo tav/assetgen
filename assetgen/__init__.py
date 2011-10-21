@@ -14,13 +14,16 @@ from hashlib import sha1
 from mimetypes import guess_type
 from optparse import OptionParser
 from os import chdir, environ, makedirs, remove, stat, walk
-from os.path import dirname, isfile, isdir, join, realpath, split, splitext
+from os.path import dirname, isfile, isdir, join, realpath, split, splitext, basename
 from re import compile as compile_regex
 from subprocess import PIPE, Popen
 from shutil import rmtree
 from stat import ST_MTIME
 from tempfile import gettempdir
 from time import sleep
+from contextlib import contextmanager
+from tempfile import mkdtemp
+from shutil import rmtree, copy
 
 try:
     from cPickle import dump, load
@@ -28,7 +31,7 @@ except ImportError:
     from pickle import dump, load
 
 from simplejson import dump as encode_json
-from tavutil.env import run_command
+from tavutil.env import run_command as run_command_orig
 from tavutil.optcomplete import autocomplete
 from tavutil.scm import is_git, SCMConfig
 from yaml import safe_load as decode_yaml
@@ -51,6 +54,7 @@ DEFAULTS = {
     'css.embed.extension': '.data',
     'css.embed.url.template': "%(url_base)s%(prefix)s/%(hash)s%(filename)s",
     'js.compressed': True,
+    'js.bare': True,
     'output.template': '%(hash)s-%(filename)s'
     }
 
@@ -79,6 +83,17 @@ def unlock(path):
 # ------------------------------------------------------------------------------
 
 register_handler = HANDLERS.__setitem__
+
+class AppExit(Exception):
+    pass
+
+def run_command(*args, **kwargs):
+    kwargs["exit_on_error"] = False
+    kwargs["retcode"] = True
+    ret, retcode = run_command_orig(*args, **kwargs)
+    if retcode:
+        raise AppExit()
+    return ret
 
 def read(filename):
     if isinstance(filename, Raw):
@@ -116,7 +131,17 @@ def stderr(*args, **kwargs):
 
 def exit(msg):
     print "ERROR:", msg
-    sys.exit(1)
+    raise AppExit(msg)
+
+@contextmanager
+def tempdir():
+    """Context that hands us a path to a temporary directory, and removes it
+    upon exiting the context"""
+    path = mkdtemp()
+    try:
+        yield path
+    finally:
+        rmtree(path)
 
 # ------------------------------------------------------------------------------
 # Raw Text Class
@@ -262,6 +287,23 @@ class CSSAsset(Asset):
                         cmd.extend(['--style', 'compressed'])
                     cmd.append(source)
                     out(do(cmd))
+                elif source.endswith('.less'):
+                    cmd = ['lessc']
+                    cmd.append(source)
+                    out(do(cmd))
+                elif source.endswith('.styl'):
+                    # need to use a tempdir, as stylus only writes to stdout
+                    # if it gets input from stdin.
+                    with tempdir() as td:
+                        tempstyl = join(td, basename(source))
+                        tempcss = tempstyl.replace(".styl", ".css")
+                        copy(source, tempstyl)
+                        cmd = ['stylus']
+                        if get_spec('compressed'):
+                            cmd.append('--compress')
+                        cmd.append(tempstyl)
+                        do(cmd)
+                        out(read(tempcss))
                 else:
                     out(read(source))
             output = ''.join(output)
@@ -291,7 +333,11 @@ class JSAsset(Asset):
             if isinstance(source, Raw):
                 out(source.text)
             elif source.endswith('.coffee'):
-                out(do(['coffee', '-p', '-b', source]))
+                cmd = ['coffee', '-p']
+                if get_spec('bare'):
+                    cmd.append('-b')
+                cmd.append(source)
+                out(do(cmd))
             else:
                 out(read(source))
         output = ''.join(output)
@@ -745,22 +791,30 @@ def main(argv=None):
             assetgen.clean()
         sys.exit()
 
-    while 1:
-        for assetgen in generators:
-            assetgen.run()
-        if watch:
-            sleep(1)
-            changed = False
-            for idx, file in enumerate(files):
-                mtime = stat(file)[ST_MTIME]
-                if mtime > mtime_cache[file]:
-                    mtime_cache[file] = mtime
-                    generators[idx] = AssetGenRunner(file, profile, force)
-                    changed = True
-            if changed:
+
+    if watch:
+        while True:
+            try:
                 sleep(1)
-        else:
-            break
+                for assetgen in generators:
+                    assetgen.run()
+
+                for idx, file in enumerate(files):
+                    mtime = stat(file)[ST_MTIME]
+                    if mtime > mtime_cache[file]:
+                        mtime_cache[file] = mtime
+                        generators[idx] = AssetGenRunner(file, profile, force)
+            except AppExit:
+                pass
+            except KeyboardInterrupt:
+                break
+    else:
+        try:
+            for assetgen in generators:
+                assetgen.run()
+        except AppExit:
+            sys.exit()
+
 
 # ------------------------------------------------------------------------------
 # Self Runner
