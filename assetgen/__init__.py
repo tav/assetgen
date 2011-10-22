@@ -17,13 +17,12 @@ from os import chdir, environ, makedirs, remove, stat, walk
 from os.path import dirname, isfile, isdir, join, realpath, split, splitext, basename
 from re import compile as compile_regex
 from subprocess import PIPE, Popen
-from shutil import rmtree
+from shutil import copy, rmtree
 from stat import ST_MTIME
 from tempfile import gettempdir
 from time import sleep
 from contextlib import contextmanager
 from tempfile import mkdtemp
-from shutil import rmtree, copy
 
 try:
     from cPickle import dump, load
@@ -31,7 +30,7 @@ except ImportError:
     from pickle import dump, load
 
 from simplejson import dump as encode_json
-from tavutil.env import run_command as run_command_orig
+from tavutil.env import run_command
 from tavutil.optcomplete import autocomplete
 from tavutil.scm import is_git, SCMConfig
 from yaml import safe_load as decode_yaml
@@ -85,15 +84,7 @@ def unlock(path):
 register_handler = HANDLERS.__setitem__
 
 class AppExit(Exception):
-    pass
-
-def run_command(*args, **kwargs):
-    kwargs["exit_on_error"] = False
-    kwargs["retcode"] = True
-    ret, retcode = run_command_orig(*args, **kwargs)
-    if retcode:
-        raise AppExit()
-    return ret
+    """Exception to signal a potential exit condition."""
 
 def read(filename):
     if isinstance(filename, Raw):
@@ -119,15 +110,14 @@ def newer(input, output, cache):
         return 1
 
 def do(args, **kwargs):
-    kwargs['exit_on_error'] = 1
-    kwargs['retcode'] = 0
+    kwargs["exit_on_error"] = 0
+    kwargs["retcode"] = 1
     kwargs['redirect_stdout'] = 1
     kwargs['redirect_stderr'] = 0
-    return run_command(args, **kwargs)
-
-def stderr(*args, **kwargs):
-    kwargs['reterror'] = 1
-    return run_command(args, **kwargs)[1]
+    ret, retcode = run_command(args, **kwargs)
+    if retcode:
+        raise AppExit()
+    return ret
 
 def exit(msg):
     print "ERROR:", msg
@@ -135,8 +125,8 @@ def exit(msg):
 
 @contextmanager
 def tempdir():
-    """Context that hands us a path to a temporary directory, and removes it
-    upon exiting the context"""
+    """Return a temporary directory and remove it upon exiting the context."""
+
     path = mkdtemp()
     try:
         yield path
@@ -288,12 +278,10 @@ class CSSAsset(Asset):
                     cmd.append(source)
                     out(do(cmd))
                 elif source.endswith('.less'):
-                    cmd = ['lessc']
-                    cmd.append(source)
-                    out(do(cmd))
+                    out(do(['lessc', source]))
                 elif source.endswith('.styl'):
-                    # need to use a tempdir, as stylus only writes to stdout
-                    # if it gets input from stdin.
+                    # Need to use a tempdir, as stylus only writes to stdout if
+                    # it gets input from stdin.
                     with tempdir() as td:
                         tempstyl = join(td, basename(source))
                         tempcss = tempstyl.replace(".styl", ".css")
@@ -791,21 +779,19 @@ def main(argv=None):
             assetgen.clean()
         sys.exit()
 
-
     if watch:
-        while True:
+        while 1:
             try:
-                sleep(1)
                 for assetgen in generators:
                     assetgen.run()
-
                 for idx, file in enumerate(files):
                     mtime = stat(file)[ST_MTIME]
                     if mtime > mtime_cache[file]:
                         mtime_cache[file] = mtime
                         generators[idx] = AssetGenRunner(file, profile, force)
+                sleep(1)
             except AppExit:
-                pass
+                sleep(3)
             except KeyboardInterrupt:
                 break
     else:
@@ -813,8 +799,7 @@ def main(argv=None):
             for assetgen in generators:
                 assetgen.run()
         except AppExit:
-            sys.exit()
-
+            sys.exit(1)
 
 # ------------------------------------------------------------------------------
 # Self Runner
