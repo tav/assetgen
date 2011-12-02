@@ -331,7 +331,7 @@ class JSAsset(Asset):
         output = ''.join(output)
         uglify = get_spec('uglify')
         if get_spec('compressed') or uglify:
-            cmd = ['uglifyjs', '-nc', '--no-dead-code']
+            cmd = ['uglifyjs']
             if uglify:
                 if isinstance(uglify, basestring):
                     cmd.append(uglify)
