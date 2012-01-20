@@ -50,7 +50,9 @@ LOCKS = {}
 DEFAULTS = {
     'css.bidi.extension': '.rtl',
     'css.compressed': True,
+    'css.embed.data_limit': 32000,
     'css.embed.extension': '.data',
+    'css.embed.only': False,
     'css.embed.url.template': "%(url_base)s%(prefix)s/%(hash)s%(filename)s",
     'js.compressed': True,
     'js.bare': True,
@@ -216,7 +218,8 @@ class CSSAsset(Asset):
         if not ok:
             return data
         content = b64encode(data)
-        if len(content) > 32000:
+        limit = self.spec.get('embed.data_limit')
+        if limit and len(content) > limit:
             return 'url("%s")' % self.get_embed_url(path, data)
         return 'url("data:%s;base64,%s")' % (ctype, content)
 
@@ -296,6 +299,13 @@ class CSSAsset(Asset):
                     out(read(source))
             output = ''.join(output)
             if self.embed_path_root and self.embed_url_base:
+                if get_spec('embed.only'):
+                    self.emit(
+                        self.path,
+                        self.embed(self.convert_to_data_uri, output),
+                        bidi
+                    )
+                    return
                 self.emit(
                     self.path,
                     self.embed(self.convert_to_data_uri, output),
