@@ -10,7 +10,8 @@ The default support includes:
 * Minifying JavaScript through UglifyJS -- including the new constant folding
   support.
 
-* Compiling and minifying SASS stylesheets into CSS.
+* Compiling and minifying SASS stylesheets into CSS -- supports both ``.sass`` 
+  and ``.scss``.
 
 * Generating variants of the same stylesheet for both internationalisation
   (flipping left to right) and for automatically embedding images as ``data:``

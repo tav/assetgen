@@ -272,8 +272,10 @@ class CSSAsset(Asset):
             for source in self.sources:
                 if isinstance(source, Raw):
                     out(source.text)
-                elif source.endswith('.sass'):
+                elif source.endswith('.sass') or source.endswith('.scss'):
                     cmd = ['sass']
+                    if source.endswith('.scss'):
+                        cmd.append('--scss')
                     if bidi:
                         cmd.append('--flip')
                     if get_spec('compressed'):
