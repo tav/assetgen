@@ -37,6 +37,6 @@ setup(
     long_description=open('README.rst').read(),
     packages=["assetgen"],
     url="https://github.com/tav/assetgen",
-    version="0.2.1",
+    version="0.2.2",
     zip_safe=True
     )
