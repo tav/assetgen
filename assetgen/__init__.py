@@ -19,13 +19,13 @@ from os import chdir, environ, makedirs, remove, stat, walk
 from os.path import basename, dirname, expanduser, isfile, isdir, join
 from os.path import realpath, split, splitext
 from posixpath import split as split_posix
+from pprint import pformat
 from re import compile as compile_regex
 from shutil import copy, rmtree
 from stat import ST_MTIME
 from subprocess import PIPE, Popen
 from tempfile import gettempdir, mkdtemp
 from time import sleep
-from pprint import pformat
 
 try:
     from cPickle import dump, load
@@ -47,7 +47,10 @@ DEBUG = False
 HANDLERS = {}
 LOCKS = {}
 
-logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s', level=logging.DEBUG)
+logging.basicConfig(
+    format='%(asctime)-15s [%(levelname)s] %(message)s', level=logging.INFO
+    )
+
 log = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
@@ -154,11 +157,11 @@ def get_downloaded_source(url, https=None, root=DOWNLOADS_PATH):
         p = join(root, s[0])
     if isfile(p):
         return [p]
-    print "=> Downloading:", url
+    log.info("Downloading: %s" % url)
     r = get_url(url)
     if r.status_code != 200:
         exit("Couldn't download %s (Got %d)" % (url, r.status_code))
-    print "=> Saving to:", p
+    log.info("Saving to: %s" % p)
     f = open(p, 'wb')
     f.write(r.content)
     f.close()
@@ -407,7 +410,7 @@ class AssetGenRunner(object):
     manifest_path = None
     virgin = True
 
-    def __init__(self, path, profile='default', force=None):
+    def __init__(self, path, profile='default', force=None, nuke=None):
 
         data_dir = join(
             gettempdir(), 'assetgen-%s' % sha1(path).hexdigest()[:12]
@@ -488,8 +491,12 @@ class AssetGenRunner(object):
 
         def expand_src(source):
             if source.startswith('http://'):
+                if nuke:
+                    return []
                 return get_downloaded_source(source)
             if source.startswith('https://'):
+                if nuke:
+                    return []
                 return get_downloaded_source(source, 1)
             source = join(base_dir, source)
             if '*' not in source:
@@ -843,11 +850,11 @@ def main(argv=None):
         for file in files:
             mtime_cache[file] = stat(file)[ST_MTIME]
 
-    generators = [AssetGenRunner(file, profile, force) for file in files]
+    generators = [AssetGenRunner(file, profile, force, nuke) for file in files]
 
     if nuke:
         if isdir(DOWNLOADS_PATH):
-            print "=> Removing:", DOWNLOADS_PATH
+            log.info("Removing: %s" % DOWNLOADS_PATH)
             rmtree(DOWNLOADS_PATH)
         clean = 1
 
