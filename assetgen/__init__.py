@@ -56,6 +56,7 @@ DEFAULTS = {
     'css.embed.url.template': "%(url_base)s%(prefix)s/%(hash)s%(filename)s",
     'js.compressed': True,
     'js.bare': True,
+    'output.manifest_force': False,
     'output.template': '%(hash)s-%(filename)s'
     }
 
@@ -444,6 +445,7 @@ class AssetGenRunner(object):
         manifest_path = config.pop('output.manifest', None)
         if manifest_path:
             self.manifest_path = join(base_dir, manifest_path)
+        self.manifest_force = config.pop('output.manifest_force', False)
 
         def expand_src(source):
             source = join(base_dir, source)
@@ -653,7 +655,7 @@ class AssetGenRunner(object):
             self.output_data.pop(key)
             return
         return 1
-        
+
     def run(self):
         chdir(self.base_dir)
         if self.virgin:
@@ -679,7 +681,7 @@ class AssetGenRunner(object):
                 change = True
                 asset.generate()
         manifest_path = self.manifest_path
-        if manifest_path and self.manifest_changed:
+        if manifest_path and (self.manifest_changed or self.manifest_force or self.force):
             print "=> Updated manifest:", manifest_path
             manifest_file = open(manifest_path, 'wb')
             encode_json(self.manifest, manifest_file)
