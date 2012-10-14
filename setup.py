@@ -29,7 +29,7 @@ setup(
         ]),
     install_requires=[
         "PyYAML>=3.09",
-        "requests>=0.14.1"
+        "requests>=0.14.1",
         "simplejson>=2.1.6",
         "tavutil>=1.0"
         ],
