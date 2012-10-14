@@ -25,8 +25,6 @@ from stat import ST_MTIME
 from subprocess import PIPE, Popen
 from tempfile import gettempdir, mkdtemp
 from time import sleep
-from contextlib import contextmanager
-from tempfile import mkdtemp
 from pprint import pformat
 
 try:
