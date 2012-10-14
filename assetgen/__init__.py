@@ -10,17 +10,20 @@ import sys
 import logging
 
 from base64 import b64encode
+from contextlib import contextmanager
 from fnmatch import fnmatch
 from hashlib import sha1
 from mimetypes import guess_type
 from optparse import OptionParser
 from os import chdir, environ, makedirs, remove, stat, walk
-from os.path import dirname, isfile, isdir, join, realpath, split, splitext, basename
+from os.path import basename, dirname, expanduser, isfile, isdir, join
+from os.path import realpath, split, splitext
+from posixpath import split as split_posix
 from re import compile as compile_regex
-from subprocess import PIPE, Popen
 from shutil import copy, rmtree
 from stat import ST_MTIME
-from tempfile import gettempdir
+from subprocess import PIPE, Popen
+from tempfile import gettempdir, mkdtemp
 from time import sleep
 from contextlib import contextmanager
 from tempfile import mkdtemp
@@ -31,6 +34,7 @@ try:
 except ImportError:
     from pickle import dump, load
 
+from requests import get as get_url
 from simplejson import dump as encode_json
 from tavutil.env import run_command
 from tavutil.optcomplete import autocomplete
@@ -64,6 +68,10 @@ DEFAULTS = {
     'output.manifest_force': False,
     'output.template': '%(hash)s-%(filename)s'
     }
+
+DOWNLOADS_PATH = environ.get(
+    'ASSETGEN_DOWNLOADS_DIRECTORY', join(expanduser('~'), '.assetgen')
+    )
 
 # ------------------------------------------------------------------------------
 # Lock Support
@@ -130,6 +138,33 @@ def do(args, **kwargs):
 def exit(msg):
     log.error("ERROR: %s" % msg)
     raise AppExit(msg)
+
+def get_downloaded_source(url, https=None, root=DOWNLOADS_PATH):
+    if not isdir(root):
+        makedirs(root)
+    if https:
+        path = url[8:]
+    else:
+        path = url[7:]
+    s = split_posix(path)
+    if len(s) > 1:
+        p = join(root, *s[:-1])
+        if not isdir(p):
+            makedirs(p)
+        p = join(p, s[-1])
+    else:
+        p = join(root, s[0])
+    if isfile(p):
+        return [p]
+    print "=> Downloading:", url
+    r = get_url(url)
+    if r.status_code != 200:
+        exit("Couldn't download %s (Got %d)" % (url, r.status_code))
+    print "=> Saving to:", p
+    f = open(p, 'wb')
+    f.write(r.content)
+    f.close()
+    return [p]
 
 @contextmanager
 def tempdir():
@@ -454,6 +489,10 @@ class AssetGenRunner(object):
         self.manifest_force = config.pop('output.manifest_force', False)
 
         def expand_src(source):
+            if source.startswith('http://'):
+                return get_downloaded_source(source)
+            if source.startswith('https://'):
+                return get_downloaded_source(source, 1)
             source = join(base_dir, source)
             if '*' not in source:
                 return [source]
@@ -715,7 +754,10 @@ def main(argv=None):
         "    If you don't specify assetgen.yaml file paths, then `git\n"
         "    ls-files *assetgen.yaml` will be used to detect all config\n"
         "    files in the current repository. So you need to be inside\n"
-        "    a git repository's working tree."
+        "    a git repository's working tree.\n\n"
+        "    And if you specify a URL as a `source`, then it will be\n"
+        "    downloaded to ~/.assetgen -- you can override this by\n"
+        "    setting the env variable $ASSETGEN_DOWNLOADS_DIRECTORY"
         ))
 
     op.add_option(
@@ -741,6 +783,11 @@ def main(argv=None):
         )
 
     op.add_option(
+        '--nuke', action='store_true',
+        help="remove all generated and downloaded files"
+        )
+
+    op.add_option(
         '--profile', dest='name', default='default',
         help="specify a profile to use"
         )
@@ -754,7 +801,7 @@ def main(argv=None):
     options, files = op.parse_args(argv)
 
     if options.version:
-        print 'assetgen 0.1'
+        print 'assetgen 0.2.2'
         sys.exit()
 
     if options.debug:
@@ -764,6 +811,7 @@ def main(argv=None):
     clean = options.clean
     extensions = options.path
     force = options.force
+    nuke = options.nuke
     profile = options.name
     watch = options.watch
 
@@ -798,6 +846,12 @@ def main(argv=None):
             mtime_cache[file] = stat(file)[ST_MTIME]
 
     generators = [AssetGenRunner(file, profile, force) for file in files]
+
+    if nuke:
+        if isdir(DOWNLOADS_PATH):
+            print "=> Removing:", DOWNLOADS_PATH
+            rmtree(DOWNLOADS_PATH)
+        clean = 1
 
     if clean:
         for assetgen in generators:
