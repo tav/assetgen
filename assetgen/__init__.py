@@ -7,6 +7,7 @@
 
 import os
 import sys
+import logging
 
 from base64 import b64encode
 from fnmatch import fnmatch
@@ -23,6 +24,7 @@ from tempfile import gettempdir
 from time import sleep
 from contextlib import contextmanager
 from tempfile import mkdtemp
+from pprint import pformat
 
 try:
     from cPickle import dump, load
@@ -42,6 +44,9 @@ from yaml import safe_load as decode_yaml
 DEBUG = False
 HANDLERS = {}
 LOCKS = {}
+
+logging.basicConfig(format='%(asctime)-15s [%(levelname)s] %(message)s', level=logging.DEBUG)
+log = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------------------
 # Default Settings
@@ -123,7 +128,7 @@ def do(args, **kwargs):
     return ret
 
 def exit(msg):
-    print "ERROR:", msg
+    log.error("ERROR: %s" % msg)
     raise AppExit(msg)
 
 @contextmanager
@@ -237,9 +242,10 @@ class CSSAsset(Asset):
         try:
             data = open(join(self.embed_path_root, path), 'rb').read()
         except IOError:
-            print "!! Couldn't find %s for %s" % (
+            log.error("!! Couldn't find %s for %s" % (
                 join(self.embed_path_root, path), self.path
-                )
+                ))
+
             return self.cache.setdefault(
                 path,
                 ('url("%s")' % self.get_embed_url(path), 0)
@@ -547,7 +553,12 @@ class AssetGenRunner(object):
 
                 for sources, depends, output in io:
                     if DEBUG:
-                        print depends, '->', output
+                        if len(depends) > 1:
+                            log.info("Combined:\n%s -> %s" % (pformat(depends), output))
+                        elif len(depends) == 1:
+                            log.info("%s -> %s" % (pformat(depends[0]), output))
+                        else:
+                            log.info("%s -> %s" % (depends, output))
                     add_asset(
                         HANDLERS[type](self, output, sources, depends, spec)
                         )
@@ -559,18 +570,18 @@ class AssetGenRunner(object):
             for key, paths in prereq_data.iteritems():
                 for path in paths:
                     full_path = join(base_dir, path)
-                    print "=> Removing:", path
+                    log.info("Removing: %s" % path)
                     remove(full_path)
         output_dir = self.output_dir
         if isdir(output_dir):
             if output_dir.endswith("/"):
-                print "=> Removing:", output_dir
+                log.info("Removing: %s" % output_dir)
             else:
-                print "=> Removing:", output_dir + "/"
+                log.info("Removing: %s/" % output_dir)
             rmtree(output_dir)
         data_path = self.data_path
         if isfile(data_path):
-            print "=> Removing:", data_path
+            log.info("Removing: %s" % data_path)
             remove(data_path)
 
     def emit(self, key, path, content, extension=''):
@@ -601,13 +612,13 @@ class AssetGenRunner(object):
         file.close()
         if self.prereq:
             self.prereq_data.setdefault(key, set()).add(path)
-            print "=> Generated prereq:", output_path
+            log.info("Generated prereq: %s" % output_path)
             return
         self.output_data.setdefault(key, set()).add(output_path)
         if digest:
-            print "=> Generated output: %s (%s)" % (path, digest[:6])
+            log.info("Generated output: %s (%s)" % (path, digest[:6]))
         else:
-            print "=> Generated output:", path
+            log.info("Generated output: %s" % path)
         manifest = self.manifest
         if path in manifest:
             ex_output_path = manifest[path]
@@ -616,7 +627,7 @@ class AssetGenRunner(object):
             ex_path = join(self.output_dir, ex_output_path)
             if isfile(ex_path):
                 remove(ex_path)
-                print ".. Removed stale:", ex_output_path
+                log.info(".. Removed stale: %s" % ex_output_path)
         manifest[path] = output_path
         self.manifest_changed = 1
 
@@ -682,7 +693,7 @@ class AssetGenRunner(object):
                 asset.generate()
         manifest_path = self.manifest_path
         if manifest_path and (self.manifest_changed or self.manifest_force or self.force):
-            print "=> Updated manifest:", manifest_path
+            log.info("Updated manifest: %s" % manifest_path)
             manifest_file = open(manifest_path, 'wb')
             encode_json(self.manifest, manifest_file)
             manifest_file.close()
