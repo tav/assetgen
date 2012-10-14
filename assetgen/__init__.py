@@ -770,6 +770,11 @@ def main(argv=None):
         )
 
     op.add_option(
+        '--nuke', action='store_true',
+        help="remove all generated and downloaded files"
+        )
+
+    op.add_option(
         '--profile', dest='name', default='default',
         help="specify a profile to use"
         )
@@ -777,11 +782,6 @@ def main(argv=None):
     op.add_option(
         '--watch', action='store_true',
         help="keep running assetgen on a loop"
-        )
-
-    op.add_option(
-        '--nuke', action='store_true',
-        help="remove all generated and downloaded files"
         )
 
     autocomplete(op)
