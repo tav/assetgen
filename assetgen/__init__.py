@@ -788,7 +788,7 @@ def main(argv=None):
     options, files = op.parse_args(argv)
 
     if options.version:
-        print 'assetgen 0.1'
+        print 'assetgen 0.2.2'
         sys.exit()
 
     if options.debug:
