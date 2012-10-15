@@ -332,7 +332,7 @@ class CSSAsset(Asset):
                     # it gets input from stdin.
                     with tempdir() as td:
                         tempstyl = join(td, basename(source))
-                        tempcss = tempstyl.replace(".styl", ".css")
+                        tempcss = tempstyl[:-5] + '.css'
                         copy(source, tempstyl)
                         cmd = ['stylus']
                         if get_spec('compressed'):
@@ -381,6 +381,13 @@ class JSAsset(Asset):
                     cmd.append('-b')
                 cmd.append(source)
                 out(do(cmd))
+            elif source.endswith('.ts'):
+                with tempdir() as td:
+                    tempts = join(td, basename(source))
+                    tempjs = tempts[:-3] + '.js'
+                    copy(source, tempts)
+                    do(['tsc', tempts])
+                    out(read(tempjs))
             else:
                 out(read(source))
         output = ''.join(output)
