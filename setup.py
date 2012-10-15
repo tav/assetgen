@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-# Public Domain (-) 2004-2011 The Assetgen Authors.
+# Public Domain (-) 2004-2012 The Assetgen Authors.
 # See the Assetgen UNLICENSE file for details.
 
 from setuptools import setup
