@@ -23,7 +23,6 @@ from pprint import pformat
 from re import compile as compile_regex
 from shutil import copy, rmtree
 from stat import ST_MTIME
-from subprocess import PIPE, Popen
 from tempfile import gettempdir, mkdtemp
 from time import sleep
 
@@ -59,19 +58,22 @@ log = logging.getLogger(__name__)
 
 DEFAULTS = {
     'css.bidi.extension': '.rtl',
-    'css.compressed': True,
+    'css.compress': True,
+    'css.embed': True,
     'css.embed.maxsize': 32000,
-    'css.embed.extension': '.data',
+    'css.embed.extension': '.embedded',
     'css.embed.only': False,
+    'css.embed.path.root': '',
+    'css.embed.url.base': '',
     'css.embed.url.template': "%(url_base)s%(prefix)s/%(hash)s%(filename)s",
-    'js.compressed': True,
+    'js.compress': True,
     'js.bare': True,
     'js.sourcemaps': False,
     'js.sourcemaps.extension': '.map',
     'js.sourcemaps.root': '',
     'js.sourcemaps.sourcepath': 'src',
     'js.uglify.bin': 'uglifyjs2',
-    'output.manifest.force': False,
+    'output.manifest.force': True,
     'output.template': '%(hash)s-%(filename)s'
     }
 
@@ -155,7 +157,7 @@ def do_with_stderr(args, **kwargs):
     return ret
 
 def exit(msg):
-    log.error("ERROR: %s" % msg)
+    log.error(msg)
     raise AppExit(msg)
 
 def get_downloaded_source(url, https=None, root=DOWNLOADS_PATH):
@@ -262,6 +264,7 @@ class CSSAsset(Asset):
         super(CSSAsset, self).__init__(*args)
         get_spec = self.spec.get
         self.cache = {}
+        self.embed_only = get_spec('embed.only')
         self.embed_path_root = get_spec('embed.path.root')
         self.embed_url_base = get_spec('embed.url.base')
         self.embed_url_template = get_spec('embed.url.template')
@@ -273,7 +276,11 @@ class CSSAsset(Asset):
         path = match.group(1)
         ctype = guess_type(path)[0]
         if not ctype:
-            exit("Could not detect the content type of: %s" % path)
+            exit(
+              "Could not detect the content type of embedded resource %r to "
+              "generate %s"
+              % (path, self.path)
+              )
         data, ok = self.get_embed_file(path)
         if not ok:
             return data
@@ -293,13 +300,18 @@ class CSSAsset(Asset):
     def get_embed_file(self, path):
         if not self.first:
             return self.cache[path]
+        if path.startswith("http://"):
+            filepath = get_downloaded_source(path)[0]
+        elif path.startswith("https://"):
+            filepath = get_downloaded_source(path, 1)[0]
+        else:
+            filepath = join(self.embed_path_root, path)
         try:
-            data = open(join(self.embed_path_root, path), 'rb').read()
+            data = open(filepath, 'rb').read()
         except IOError:
             log.error("!! Couldn't find %s for %s" % (
-                join(self.embed_path_root, path), self.path
+                filepath, self.path
                 ))
-
             return self.cache.setdefault(
                 path,
                 ('url("%s")' % self.get_embed_url(path), 0)
@@ -307,6 +319,8 @@ class CSSAsset(Asset):
         return self.cache.setdefault(path, (data, 1))
 
     def get_embed_url(self, path, data=None):
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
         if data is None or not self.runner.hashed:
             digest = ''
         else:
@@ -339,13 +353,13 @@ class CSSAsset(Asset):
                         cmd.append('--scss')
                     if bidi:
                         cmd.append('--flip')
-                    if get_spec('compressed'):
+                    if get_spec('compress'):
                         cmd.extend(['--style', 'compressed'])
                     cmd.append(source)
                     out(do(cmd))
                 elif source.endswith('.less'):
                     cmd = ['lessc']
-                    if get_spec('compressed'):
+                    if get_spec('compress'):
                         cmd.append('-x')
                     cmd.append(source)
                     out(do(cmd))
@@ -357,7 +371,7 @@ class CSSAsset(Asset):
                         tempcss = tempstyl[:-5] + '.css'
                         copy(source, tempstyl)
                         cmd = ['stylus']
-                        if get_spec('compressed'):
+                        if get_spec('compress'):
                             cmd.append('--compress')
                         cmd.append(tempstyl)
                         do(cmd)
@@ -365,8 +379,8 @@ class CSSAsset(Asset):
                 else:
                     out(read(source))
             output = ''.join(output)
-            if self.embed_path_root and self.embed_url_base:
-                if get_spec('embed.only'):
+            if get_spec('embed') or self.embed_only:
+                if self.embed_only:
                     self.emit(
                         self.path,
                         self.embed(self.convert_to_data_uri, output),
@@ -395,10 +409,11 @@ def extend_opts(xs, opt):
         xs.extend(opt)
 
 def mismatch(s1, s2, source, existing):
-    raise AppExit(
+    log.error(
         "Mixed %s/%s source files are not compatible with source maps (%s + %s)"
         % (s1, s2, source, existing)
     )
+    raise AppExit()
 
 class JSAsset(Asset):
     """Generator for JavaScript Assets."""
@@ -411,7 +426,7 @@ class JSAsset(Asset):
             ts = cs = js = None
             for source in sources:
                 if isinstance(source, Raw):
-                    raise AppExit("Raw source strings are not compatible with source maps")
+                    exit("Raw source strings are not compatible with source maps")
                 if source.endswith('.ts'):
                     if cs:
                         mismatch("CoffeeScript", "TypeScript", source, cs)
@@ -419,7 +434,7 @@ class JSAsset(Asset):
                         mismatch("JavaScript", "TypeScript", source, js)
                     ts = source
                 elif source.endswith('.coffee'):
-                    raise AppExit("CoffeeScript files are not yet compatible with source maps")
+                    exit("CoffeeScript files are not yet compatible with source maps")
                     if js:
                         mismatch("CoffeeScript", "JavaScript", source, js)
                     elif ts:
@@ -501,7 +516,7 @@ class JSAsset(Asset):
                 uglify = get_spec('uglify')
                 if uglify:
                     extend_opts(cmd, uglify)
-                elif get_spec('compressed'):
+                elif get_spec('compress'):
                     cmd.extend(['-c', '-m'])
                 elif self.ts:
                     self.sourcemap(
@@ -554,7 +569,7 @@ class JSAsset(Asset):
 
     def uglify(self, output, get_spec):
         uglify = get_spec('uglify')
-        if uglify or get_spec('compressed'):
+        if uglify or get_spec('compress'):
             bin = get_spec('uglify.bin')
             cmd = [bin]
             if uglify:
@@ -989,7 +1004,7 @@ def main(argv=None):
     options, files = op.parse_args(argv)
 
     if options.version:
-        print 'assetgen 0.2.3'
+        print 'assetgen 0.3.0'
         sys.exit()
 
     if options.debug:

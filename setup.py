@@ -28,16 +28,19 @@ setup(
         "assetgen = assetgen:main"
         ]),
     install_requires=[
-        "PyYAML>=3.09",
-        "requests>=0.14.1",
-        "simplejson>=2.1.6",
-        "tavutil>=1.0"
+        "PyYAML >= 3.09",
+        "requests >= 0.14.1",
+        "simplejson >= 2.1.6",
+        "tavutil >= 1.0"
         ],
-    keywords=["assets", "javascript", "css", "coffeescript", "sass"],
+    keywords=[
+        "assets", "javascript", "css", "coffeescript", "sass", "typescript",
+        "less", "lessjs", "scss", "stylus", "source maps", "i18n"
+        ],
     license="Public Domain",
     long_description=open('README.rst').read(),
     packages=["assetgen"],
     url="https://github.com/tav/assetgen",
-    version="0.2.3",
+    version="0.3.0",
     zip_safe=True
     )
