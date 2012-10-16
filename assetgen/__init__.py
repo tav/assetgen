@@ -33,7 +33,7 @@ except ImportError:
     from pickle import dump, load
 
 from requests import get as get_url
-from simplejson import dump as encode_json
+from simplejson import dump as encode_json, dumps as enc_json, loads as dec_json
 from tavutil.env import run_command
 from tavutil.optcomplete import autocomplete
 from tavutil.scm import is_git, SCMConfig
@@ -60,18 +60,23 @@ log = logging.getLogger(__name__)
 DEFAULTS = {
     'css.bidi.extension': '.rtl',
     'css.compressed': True,
-    'css.embed.data_limit': 32000,
+    'css.embed.maxsize': 32000,
     'css.embed.extension': '.data',
     'css.embed.only': False,
     'css.embed.url.template': "%(url_base)s%(prefix)s/%(hash)s%(filename)s",
     'js.compressed': True,
     'js.bare': True,
-    'output.manifest_force': False,
+    'js.sourcemaps': False,
+    'js.sourcemaps.extension': '.map',
+    'js.sourcemaps.root': '',
+    'js.sourcemaps.sourcepath': 'src',
+    'js.uglify.bin': 'uglifyjs2',
+    'output.manifest.force': False,
     'output.template': '%(hash)s-%(filename)s'
     }
 
 DOWNLOADS_PATH = environ.get(
-    'ASSETGEN_DOWNLOADS_DIRECTORY', join(expanduser('~'), '.assetgen')
+    'ASSETGEN_DOWNLOADS', join(expanduser('~'), '.assetgen')
     )
 
 # ------------------------------------------------------------------------------
@@ -133,6 +138,19 @@ def do(args, **kwargs):
     kwargs['redirect_stderr'] = 0
     ret, retcode = run_command(args, **kwargs)
     if retcode:
+        raise AppExit()
+    return ret
+
+def do_with_stderr(args, **kwargs):
+    kwargs["exit_on_error"] = 0
+    kwargs["retcode"] = 1
+    kwargs["reterror"] = 1
+    kwargs['redirect_stdout'] = 1
+    kwargs['redirect_stderr'] = 1
+    ret, err, retcode = run_command(args, **kwargs)
+    if retcode:
+        if err.strip():
+            print err.strip()
         raise AppExit()
     return ret
 
@@ -207,7 +225,7 @@ class Asset(object):
     __repr__ = __str__
 
     def emit(self, path, content, extension=''):
-        self.runner.emit(self.path, path, content, extension)
+        return self.runner.emit(self.path, path, content, extension)
 
     def is_fresh(self):
         return self.runner.is_fresh(self.path, self.depends)
@@ -260,7 +278,7 @@ class CSSAsset(Asset):
         if not ok:
             return data
         content = b64encode(data)
-        limit = self.spec.get('embed.data_limit')
+        limit = self.spec.get('embed.maxsize')
         if limit and len(content) > limit:
             return 'url("%s")' % self.get_embed_url(path, data)
         return 'url("data:%s;base64,%s")' % (ctype, content)
@@ -366,11 +384,149 @@ register_handler('css', CSSAsset)
 # JS Assets
 # ------------------------------------------------------------------------------
 
+def extend_opts(xs, opt):
+    if isinstance(opt, basestring):
+        xs.append(opt)
+    else:
+        xs.extend(opt)
+
+def mismatch(s1, s2, source, existing):
+    raise AppExit(
+        "Mixed %s/%s source files are not compatible with source maps (%s + %s)"
+        % (s1, s2, source, existing)
+    )
+
 class JSAsset(Asset):
     """Generator for JavaScript Assets."""
 
+    def __init__(self, *args):
+        super(JSAsset, self).__init__(*args)
+        sources = self.sources
+        get_spec = self.spec.get
+        if get_spec('sourcemaps'):
+            ts = cs = js = None
+            for source in sources:
+                if isinstance(source, Raw):
+                    raise AppExit("Raw source strings are not compatible with source maps")
+                if source.endswith('.ts'):
+                    if cs:
+                        mismatch("CoffeeScript", "TypeScript", source, cs)
+                    elif js:
+                        mismatch("JavaScript", "TypeScript", source, js)
+                    ts = source
+                elif source.endswith('.coffee'):
+                    raise AppExit("CoffeeScript files are not yet compatible with source maps")
+                    if js:
+                        mismatch("CoffeeScript", "JavaScript", source, js)
+                    elif ts:
+                        mismatch("CoffeeScript", "TypeScript", source, ts)
+                    cs = source
+                else:
+                    if cs:
+                        mismatch("CoffeeScript", "JavaScript", source, cs)
+                    elif ts:
+                        mismatch("JavaScript", "TypeScript", source, ts)
+                    js = source
+            self.cs, self.js, self.ts = cs, js, ts
+            src_output = get_spec('sourcemaps.sourcepath')
+            self.base_mapping = base_mapping = {}
+            self.mapping = mapping = {}
+            seen = set()
+            for source in sources:
+                path = base = basename(source)
+                if path in seen:
+                    i = 0
+                    base, ext = splitext(path)
+                    while path in seen:
+                        path = "%s.%d.%s" % (base, i, ext)
+                        i += 1
+                seen.add(path)
+                base_mapping[base] = source
+                mapping[source] = join(src_output, self.path, path)
+            self.sm_ext = get_spec('sourcemaps.extension')
+            self.sm_root = get_spec('sourcemaps.root')
+        else:
+            ts = 1
+            for source in sources:
+                if isinstance(source, Raw) or not source.endswith('.ts'):
+                    ts = 0
+                    break
+            self.ts = ts
+
+    def sourcemap(self, js, sm_path, sm_id, src_map):
+        data = dec_json(read(sm_path))
+        if self.sm_root:
+            data['sourceRoot'] = self.sm_root
+        sources = []; add_source = sources.append
+        if self.ts:
+            base_mapping = self.base_mapping
+            for source in data['sources']:
+                add_source(src_map[base_mapping[source]])
+        else:
+            for source in data['sources']:
+                add_source(src_map[source])
+        data['sources'] = sources
+        path_new = self.emit(self.path+self.sm_ext, ')]}\n' + enc_json(data))
+        map_str = '//@ sourceMappingURL=%s' % sm_id
+        map_str_new = '//@ sourceMappingURL=%s' % path_new
+        self.emit(self.path, js.replace(map_str, map_str_new))
+
     def generate(self):
         get_spec = self.spec.get
+        if get_spec('sourcemaps'):
+            src_map = {}
+            mapping = self.mapping
+            sources = self.sources
+            for source in sources:
+                src_map[source] = self.emit(mapping[source], read(source))
+            with tempdir() as td:
+                filename = basename(self.path)
+                if self.js:
+                    cmd = ['uglifyjs2'] + sources
+                elif self.ts:
+                    ts_js_path = join(td, filename)
+                    cmd = ['tsc', '-sourcemap', '--out', ts_js_path]
+                    tsc = get_spec('tsc')
+                    if tsc:
+                        extend_opts(cmd, tsc)
+                    else:
+                        cmd.append('--comments')
+                    cmd.extend(sources)
+                    do(cmd)
+                    cmd = ['uglifyjs2', ts_js_path]
+                uglify = get_spec('uglify')
+                if uglify:
+                    extend_opts(cmd, uglify)
+                elif get_spec('compressed'):
+                    cmd.extend(['-c', '-m'])
+                elif self.ts:
+                    self.sourcemap(
+                        read(ts_js_path), ts_js_path+'.map', filename+'.map',
+                        src_map
+                        )
+                    return
+                map_path = join(td, filename + self.sm_ext)
+                cmd.extend(['--source-map', map_path])
+                if self.ts:
+                    cmd.extend(['--in-source-map', ts_js_path+'.map'])
+                self.sourcemap(
+                    do_with_stderr(cmd), map_path, map_path, src_map
+                    )
+            return
+        if self.ts:
+            with tempdir() as td:
+                filename = basename(self.path)
+                ts_js_path = join(td, filename)
+                cmd = ['tsc', '--out', ts_js_path]
+                tsc = get_spec('tsc')
+                if tsc:
+                    extend_opts(cmd, tsc)
+                else:
+                    cmd.append('--comments')
+                cmd.extend(self.sources)
+                do(cmd)
+                self.uglify(read(ts_js_path), get_spec)
+            return
         output = []; out = output.append
         for source in self.sources:
             if isinstance(source, Raw):
@@ -390,19 +546,27 @@ class JSAsset(Asset):
                     out(read(tempjs))
             else:
                 out(read(source))
-        output = ''.join(output)
+        self.uglify(''.join(output), get_spec)
+
+    def uglify(self, output, get_spec):
         uglify = get_spec('uglify')
-        if get_spec('compressed') or uglify:
-            cmd = ['uglifyjs']
+        if uglify or get_spec('compressed'):
+            bin = get_spec('uglify.bin')
+            cmd = [bin]
             if uglify:
-                if isinstance(uglify, basestring):
-                    cmd.append(uglify)
+                extend_opts(cmd, uglify)
+            elif bin == 'uglifyjs2':
+                cmd.extend(['-c', '-m'])
+            with tempdir() as td:
+                path = join(td, basename(self.path))
+                f = open(path, 'wb')
+                f.write(output)
+                f.close()
+                if bin == 'uglifyjs2':
+                    cmd.insert(1, path)
                 else:
-                    cmd.extend(uglify)
-            popen = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-            output, stderr = popen.communicate(output)
-            if stderr:
-                exit("!! Got error uglifying: %s\n\n%s" % (self.path, stderr))
+                    cmd.append(path)
+                output = do_with_stderr(cmd)
         self.emit(self.path, output)
 
 register_handler('js', JSAsset)
@@ -494,7 +658,9 @@ class AssetGenRunner(object):
         manifest_path = config.pop('output.manifest', None)
         if manifest_path:
             self.manifest_path = join(base_dir, manifest_path)
-        self.manifest_force = config.pop('output.manifest_force', False)
+        self.manifest_force = config.pop('output.manifest.force', False)
+        if force:
+            self.manifest_force = True
 
         def expand_src(source):
             if source.startswith('http://'):
@@ -605,9 +771,14 @@ class AssetGenRunner(object):
                 for sources, depends, output in io:
                     if DEBUG:
                         if len(depends) > 1:
-                            log.info("Combined:\n%s -> %s" % (pformat(depends), output))
+                            log.info(
+                                "Combined:\n%s -> %s"
+                                % (pformat(depends), output)
+                                )
                         elif len(depends) == 1:
-                            log.info("%s -> %s" % (pformat(depends[0]), output))
+                            log.info(
+                                "%s -> %s" % (pformat(depends[0]), output)
+                                )
                         else:
                             log.info("%s -> %s" % (depends, output))
                     add_asset(
@@ -664,7 +835,7 @@ class AssetGenRunner(object):
         if self.prereq:
             self.prereq_data.setdefault(key, set()).add(path)
             log.info("Generated prereq: %s" % output_path)
-            return
+            return output_path
         self.output_data.setdefault(key, set()).add(output_path)
         if digest:
             log.info("Generated output: %s (%s)" % (path, digest[:6]))
@@ -674,13 +845,14 @@ class AssetGenRunner(object):
         if path in manifest:
             ex_output_path = manifest[path]
             if output_path == ex_output_path:
-                return
+                return output_path
             ex_path = join(self.output_dir, ex_output_path)
             if isfile(ex_path):
                 remove(ex_path)
                 log.info(".. Removed stale: %s" % ex_output_path)
         manifest[path] = output_path
         self.manifest_changed = 1
+        return output_path
 
     def is_fresh(self, key, depends):
         if self.force:
@@ -743,7 +915,7 @@ class AssetGenRunner(object):
                 change = True
                 asset.generate()
         manifest_path = self.manifest_path
-        if manifest_path and (self.manifest_changed or self.manifest_force or self.force):
+        if manifest_path and (self.manifest_changed or self.manifest_force):
             log.info("Updated manifest: %s" % manifest_path)
             manifest_file = open(manifest_path, 'wb')
             encode_json(self.manifest, manifest_file)
@@ -769,7 +941,7 @@ def main(argv=None):
         "    a git repository's working tree.\n\n"
         "    And if you specify a URL as a `source`, then it will be\n"
         "    downloaded to ~/.assetgen -- you can override this by\n"
-        "    setting the env variable $ASSETGEN_DOWNLOADS_DIRECTORY"
+        "    setting the env variable $ASSETGEN_DOWNLOADS"
         ))
 
     op.add_option(
@@ -813,7 +985,7 @@ def main(argv=None):
     options, files = op.parse_args(argv)
 
     if options.version:
-        print 'assetgen 0.2.2'
+        print 'assetgen 0.2.3'
         sys.exit()
 
     if options.debug:
