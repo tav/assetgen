@@ -344,7 +344,11 @@ class CSSAsset(Asset):
                     cmd.append(source)
                     out(do(cmd))
                 elif source.endswith('.less'):
-                    out(do(['lessc', source]))
+                    cmd = ['lessc']
+                    if get_spec('compressed'):
+                        cmd.append('-x')
+                    cmd.append(source)
+                    out(do(cmd))
                 elif source.endswith('.styl'):
                     # Need to use a tempdir, as stylus only writes to stdout if
                     # it gets input from stdin.
