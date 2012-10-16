@@ -85,11 +85,11 @@ file, e.g.
 
    - static/js/consts.js:
        source: static/js/consts.coffee
-       compressed: false
+       compress: false
 
    - static/js/consts-dev.js:
        source: static/js/consts-dev.coffee
-       compressed: false
+       compress: false
 
    env:
      NODE_PATH.prefix: static/js
@@ -99,8 +99,8 @@ file, e.g.
    output.manifest: appengine/assets.json
 
    profile.dev:
-     css.compressed: false
-     js.compressed: false
+     css.compress: false
+     js.compress: false
 
 To take advantage of the embedding within stylesheets just replace ``url()``
 entries with ``embed()`` entries in your source stylesheet files -- whether
