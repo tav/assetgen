@@ -7,18 +7,17 @@ The default support includes:
 
 * Compiling CoffeeScript/TypeScript source files into JavaScript.
 
-* Minifying through UglifyJS/UglifyJS2 -- including constant folding support.
+* Minifying with UglifyJS/UglifyJS2 -- including constant folding support.
 
-* Generating Source Maps for TypeScript and minified JavaScript sources.
+* Generating source maps for TypeScript and minified JavaScript sources.
 
 * Compiling and minifying CSS from Less, SASS, SCSS and Stylus source files.
 
-* Generating variants of the same stylesheet for both internationalisation
+* Generating variants of the same stylesheet for internationalisation
   (flipping left to right).
 
 * Embedding image/font resources as ``data:`` URIs within CSS stylesheets to
-  minimise latency -- just replace ``url()`` entries with ``embed()`` entries
-  in your source css/less/sass/scss/stylus files.
+  minimise latency.
 
 * Concatenating multiple source files into one file to minimise the number of
   HTTP requests.
@@ -103,15 +102,19 @@ file, e.g.
      css.compressed: false
      js.compressed: false
 
-You can even control which config options gets used by specifying the
-``--profile`` parameter. This will override default values with the values
-specified for the given profile. So, in the above example, specifying
-``--profile dev`` will use all the ``profile.dev`` options.
+To take advantage of the embedding within stylesheets just replace ``url()``
+entries with ``embed()`` entries in your source stylesheet files -- whether
+that is less, sass, scss, stylus or plain old CSS.
 
-Whilst you are developing, you can use the ``--watch`` command-line parameter
-to tell ``assetgen`` to monitor file changes and rebuild all appropriate
-files. Watch also monitors changes to the ``assetgen.yaml`` file, so you can
-update the config without having to restart ``assetgen``.
+You can control which config options gets used by specifying the ``--profile``
+parameter. This will override default values with the values specified for the
+given profile. So, in the above example, specifying ``--profile dev`` will use
+all the ``profile.dev`` options.
+
+And, whilst you are developing, you can use the ``--watch`` command-line
+parameter to tell ``assetgen`` to monitor file changes and rebuild all
+appropriate files. Watch also monitors changes to the ``assetgen.yaml`` file,
+so you can update the config without having to restart ``assetgen``.
 
 During development, one often runs ``--watch`` with a dev profile, e.g.
 
