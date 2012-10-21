@@ -3,6 +3,7 @@
 # Public Domain (-) 2004-2012 The Assetgen Authors.
 # See the Assetgen UNLICENSE file for details.
 
+from assetgen.version import __release__
 from setuptools import setup
 
 # ------------------------------------------------------------------------------
@@ -25,7 +26,7 @@ setup(
         ],
     description="Asset generator for modern web app development",
     entry_points=dict(console_scripts=[
-        "assetgen = assetgen:main"
+        "assetgen = assetgen.main:main"
         ]),
     install_requires=[
         "PyYAML >= 3.09",
@@ -41,6 +42,6 @@ setup(
     long_description=open('README.rst').read(),
     packages=["assetgen"],
     url="https://github.com/tav/assetgen",
-    version="0.3.0",
+    version=__release__,
     zip_safe=True
     )
