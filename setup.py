@@ -29,6 +29,7 @@ setup(
         "assetgen = assetgen.main:main"
         ]),
     install_requires=[
+        "Mako >= 0.7.2",
         "PyYAML >= 3.09",
         "requests >= 0.14.1",
         "simplejson >= 2.1.6",

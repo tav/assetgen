@@ -29,8 +29,11 @@ try:
 except ImportError:
     from pickle import dump, load
 
+from mako.exceptions import RichTraceback
+from mako.template import Template
 from requests import get as get_url
 from simplejson import dump as encode_json, dumps as enc_json, loads as dec_json
+from simplejson import JSONEncoderForHTML
 from tavutil.env import run_command
 from tavutil.optcomplete import autocomplete
 from tavutil.scm import is_git, SCMConfig
@@ -409,6 +412,9 @@ def extend_opts(xs, opt):
     else:
         xs.extend(opt)
 
+def jsliteral(v, enc=JSONEncoderForHTML().encode):
+    return enc(v)
+
 def mismatch(s1, s2, source, existing):
     log.error(
         "Mixed %s/%s source files are not compatible with source maps (%s + %s)"
@@ -423,6 +429,14 @@ class JSAsset(Asset):
         super(JSAsset, self).__init__(*args)
         sources = self.sources
         get_spec = self.spec.get
+        tmpl = get_spec('template')
+        if tmpl:
+            self.template_encoding = get_spec('template.source.encoding', 'utf-8')
+            self.template = Template(
+                tmpl, output_encoding=get_spec('template.output.encoding', 'utf-8')
+                )
+        else:
+            self.template = None
         if get_spec('sourcemaps'):
             ts = cs = js = None
             for source in sources:
@@ -472,6 +486,20 @@ class JSAsset(Asset):
                     ts = 0
                     break
             self.ts = ts
+
+    def apply_template(self, source):
+        if self.template_encoding != 'ascii':
+            source = unicode(source, self.template_encoding)
+        try:
+            return self.template.render(jsliteral=jsliteral, source=source)
+        except Exception, err:
+            traceback = RichTraceback()
+            for (filename, lineno, function, line) in traceback.traceback:
+                print "File %s, line %s, in %s" % (filename, lineno, function)
+                print line, "\n"
+            print "%s: %s" % (str(traceback.error.__class__.__name__), traceback.error)
+            print
+            raise err
 
     def sourcemap(self, js, sm_path, sm_id, src_map):
         data = dec_json(read(sm_path))
@@ -565,7 +593,10 @@ class JSAsset(Asset):
                     do(['tsc', tempts])
                     out(read(tempjs))
             else:
-                out(read(source))
+                if self.template:
+                    out(self.apply_template(read(source)))
+                else:
+                    out(read(source))
         self.uglify(''.join(output), get_spec)
 
     def uglify(self, output, get_spec):
