@@ -1,4 +1,4 @@
-# Public Domain (-) 2010-2012 The Assetgen Authors.
+# Public Domain (-) 2010-2013 The Assetgen Authors.
 # See the Assetgen UNLICENSE file for details.
 
 """Asset generator for modern web app development."""
@@ -73,7 +73,6 @@ DEFAULTS = {
     'js.sourcemaps.extension': '.map',
     'js.sourcemaps.root': '',
     'js.sourcemaps.sourcepath': 'src',
-    'js.uglify.bin': 'uglifyjs2',
     'output.directory': None,
     'output.hashed': False,
     'output.manifest': None,
@@ -367,6 +366,12 @@ class CSSAsset(Asset):
                         cmd.append('-x')
                     cmd.append(source)
                     out(do(cmd))
+                elif source.endswith('.roole'):
+                    cmd = ['roole', '-p']
+                    if get_spec('compress'):
+                        cmd.extend(['--indent', ''])
+                    cmd.append(source)
+                    out(do(cmd))
                 elif source.endswith('.styl'):
                     # Need to use a tempdir, as stylus only writes to stdout if
                     # it gets input from stdin.
@@ -449,7 +454,6 @@ class JSAsset(Asset):
                         mismatch("JavaScript", "TypeScript", source, js)
                     ts = source
                 elif source.endswith('.coffee'):
-                    exit("CoffeeScript files are not yet compatible with source maps")
                     if js:
                         mismatch("CoffeeScript", "JavaScript", source, js)
                     elif ts:
@@ -530,7 +534,7 @@ class JSAsset(Asset):
             with tempdir() as td:
                 filename = basename(self.path)
                 if self.js:
-                    cmd = ['uglifyjs2'] + sources
+                    cmd = ['uglifyjs'] + sources
                 elif self.ts:
                     ts_js_path = join(td, filename)
                     cmd = ['tsc', '-sourcemap', '--out', ts_js_path]
@@ -541,7 +545,7 @@ class JSAsset(Asset):
                         cmd.append('--comments')
                     cmd.extend(sources)
                     do(cmd)
-                    cmd = ['uglifyjs2', ts_js_path]
+                    cmd = ['uglifyjs', ts_js_path]
                 uglify = get_spec('uglify')
                 if uglify:
                     extend_opts(cmd, uglify)
@@ -602,21 +606,17 @@ class JSAsset(Asset):
     def uglify(self, output, get_spec):
         uglify = get_spec('uglify')
         if uglify or get_spec('compress'):
-            bin = get_spec('uglify.bin')
-            cmd = [bin]
+            cmd = ['uglifyjs']
             if uglify:
                 extend_opts(cmd, uglify)
-            elif bin == 'uglifyjs2':
+            else:
                 cmd.extend(['-c', '-m'])
             with tempdir() as td:
                 path = join(td, basename(self.path))
                 f = open(path, 'wb')
                 f.write(output)
                 f.close()
-                if bin == 'uglifyjs2':
-                    cmd.insert(1, path)
-                else:
-                    cmd.append(path)
+                cmd.insert(1, path)
                 output = do_with_stderr(cmd)
         self.emit(self.path, output)
 
