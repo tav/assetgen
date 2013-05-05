@@ -427,6 +427,15 @@ def mismatch(s1, s2, source, existing):
     )
     raise AppExit()
 
+def set_uglify_defines(cmd, uglify_define):
+    if not uglify_define:
+        return
+    if isinstance(uglify_define, basestring):
+        cmd.extend(['--define', uglify_define])
+    else:
+        for part in uglify_define:
+            cmd.extend(['--define', part])
+
 class JSAsset(Asset):
     """Generator for JavaScript Assets."""
 
@@ -547,10 +556,13 @@ class JSAsset(Asset):
                     do(cmd)
                     cmd = ['uglifyjs', ts_js_path]
                 uglify = get_spec('uglify')
+                uglify_define = get_spec('uglify.define')
                 if uglify:
                     extend_opts(cmd, uglify)
+                    set_uglify_defines(cmd, uglify_define)
                 elif get_spec('compress'):
                     cmd.extend(['-c', '-m'])
+                    set_uglify_defines(cmd, uglify_define)
                 elif self.ts:
                     self.sourcemap(
                         read(ts_js_path), ts_js_path+'.map', filename+'.map',
@@ -605,12 +617,15 @@ class JSAsset(Asset):
 
     def uglify(self, output, get_spec):
         uglify = get_spec('uglify')
+        uglify_define = get_spec('uglify.define')
         if uglify or get_spec('compress'):
             cmd = ['uglifyjs']
             if uglify:
                 extend_opts(cmd, uglify)
+                set_uglify_defines(cmd, uglify_define)
             else:
                 cmd.extend(['-c', '-m'])
+                set_uglify_defines(cmd, uglify_define)
             with tempdir() as td:
                 path = join(td, basename(self.path))
                 f = open(path, 'wb')
