@@ -9,9 +9,11 @@ The default support includes:
 
 * Minifying with UglifyJS/UglifyJS2 -- including constant folding support.
 
-* Generating source maps for TypeScript and minified JavaScript sources.
+* Generating source maps for CoffeeScript, TypeScript and minified JavaScript
+  sources.
 
-* Compiling and minifying CSS from Less, SASS, SCSS and Stylus source files.
+* Compiling and minifying CSS from Less, Roole, SASS, SCSS and Stylus source
+  files.
 
 * Generating variants of the same stylesheet for internationalisation
   (flipping left to right).
@@ -47,17 +49,17 @@ file, e.g.
    - js/app.js:
        source:
          - https://raw.github.com/tav/jsutil/master/define.coffee
-         - static/js/Models.coffee
-         - static/js/Views.coffee
-         - static/js/Maps.coffee
-       uglify.bin: uglifyjs
+         - static/js/models.coffee
+         - static/js/views.coffee
        uglify:
-         - --define-from-module
-         - consts
+         - -c
+         - -m
+         - --define
+         - DEBUG=false
        profile.dev:
          uglify:
-           - --define-from-module
-           - consts-dev
+           - --define
+           - DEBUG=true
 
    - js/encoder.js:
        source:
@@ -86,7 +88,7 @@ file, e.g.
    - css/site.css:
        source:
          - raw: |
-             // Public Domain (-) 2012 The Ampify Authors.
+             // Public Domain (-) 2013 The Ampify Authors.
              // See the Ampify UNLICENSE file for details.
          - static/css/site.sass
        depends:
