@@ -1,6 +1,6 @@
 #! /usr/bin/env python
 
-# Public Domain (-) 2004-2012 The Assetgen Authors.
+# Public Domain (-) 2004-2013 The Assetgen Authors.
 # See the Assetgen UNLICENSE file for details.
 
 from assetgen.version import __release__
@@ -29,15 +29,15 @@ setup(
         "assetgen = assetgen.main:main"
         ]),
     install_requires=[
-        "Mako >= 0.7.2",
-        "PyYAML >= 3.09",
-        "requests >= 0.14.1",
-        "simplejson >= 2.1.6",
-        "tavutil >= 1.0"
+        "Mako >= 0.8.0",
+        "PyYAML >= 3.10",
+        "requests >= 1.2.0",
+        "simplejson >= 3.2.0",
+        "tavutil >= 1.0.2"
         ],
     keywords=[
         "assets", "javascript", "css", "coffeescript", "sass", "typescript",
-        "less", "lessjs", "scss", "stylus", "source maps", "i18n"
+        "less", "lessjs", "roole", "scss", "stylus", "source maps", "i18n"
         ],
     license="Public Domain",
     long_description=open('README.rst').read(),
