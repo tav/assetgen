@@ -51,14 +51,10 @@ file, e.g.
          - https://raw.github.com/tav/jsutil/master/define.coffee
          - static/js/models.coffee
          - static/js/views.coffee
-       uglify:
-         - -c
-         - -m
-         - --define
+       uglify.define:
          - DEBUG=false
        profile.dev:
-         uglify:
-           - --define
+         uglify.define:
            - DEBUG=true
 
    - js/encoder.js:
