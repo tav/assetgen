@@ -29,6 +29,8 @@ The default support includes:
 
 * Creating a JSON manifest file for use in your web app's static handlers.
 
+* Generating files processed by a templating language (e.g. for inserting content from other files).
+
 The tool is driven by the configuration you specify in an ``assetgen.yaml``
 file, e.g.
 
@@ -63,6 +65,19 @@ file, e.g.
          - encoder/format.ts
          - encoder/encode.ts
        sourcemaps: true
+
+   - js/content-inserter.js
+        source:
+          - static/html/content.html # plain html content
+          - static/js/Content.coffee # content handling logic
+          - raw: "})();"
+        template: |
+          (function(){var htmlContent = ${source|trim,jsliteral};
+        # the source parameter gets processesed for each static source
+        # file (i.e. not raw strings) which is not processed in any way
+        # i.e. not CoffeeScript/TypeScript files.
+        # Also, templates only works when source maps are disabled
+        sourcemaps: false
 
    - gfx/*:
        source: static/gfx/*
