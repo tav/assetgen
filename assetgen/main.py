@@ -13,7 +13,7 @@ from fnmatch import fnmatch
 from hashlib import sha1
 from mimetypes import guess_type
 from optparse import OptionParser
-from os import chdir, environ, makedirs, remove, stat, walk
+from os import chdir, environ, getcwd, makedirs, remove, stat, walk
 from os.path import basename, dirname, expanduser, isfile, isdir, join
 from os.path import realpath, split, splitext
 from posixpath import split as split_posix
@@ -28,6 +28,8 @@ try:
     from cPickle import dump, load
 except ImportError:
     from pickle import dump, load
+
+from assetgen.version import __release__
 
 from mako.exceptions import RichTraceback
 from mako.template import Template
@@ -116,7 +118,10 @@ class AppExit(Exception):
 def read(filename):
     if isinstance(filename, Raw):
         return filename.text
-    file = open(filename, 'rb')
+    try:
+        file = open(filename, 'rb')
+    except Exception, err:
+        exit(err)
     content = file.read()
     file.close()
     return content
@@ -139,11 +144,16 @@ def newer(input, output, cache):
 def do(args, **kwargs):
     kwargs["exit_on_error"] = 0
     kwargs["retcode"] = 1
+    kwargs["reterror"] = 1
     kwargs['redirect_stdout'] = 1
-    kwargs['redirect_stderr'] = 0
-    ret, retcode = run_command(args, **kwargs)
+    kwargs['redirect_stderr'] = 1
+    ret, reterr, retcode = run_command(args, **kwargs)
     if retcode:
-        raise AppExit()
+        cmd = ' '.join(args)
+        if reterr:
+            reterr = '\n\t'.join(reterr.strip().split('\n'))
+            exit("Error running: %s\n\n\t%s\n" % (cmd, reterr))
+        raise AppExit("Error running: %s" % cmd)
     return ret
 
 def do_with_stderr(args, **kwargs):
@@ -350,6 +360,28 @@ class CSSAsset(Asset):
             for source in self.sources:
                 if isinstance(source, Raw):
                     out(source.text)
+                elif source.endswith('.js') or source.endswith('coffee'):
+                    with tempdir() as td:
+                        tempout = join(td, basename(source))
+                        if source.endswith('coffee'):
+                            js = do(['coffee', '-p', '-b', source])
+                            tempout = tempout[:-7] + '.js'
+                            jsfile = open(tempout, 'wb')
+                            jsfile.write(js)
+                            jsfile.close()
+                        else:
+                            copy(source, tempout)
+                        cwd = getcwd()
+                        tempcss = tempout[:-3] + '.css'
+                        cmd = ['absurd', '-s', basename(tempout), '-o', basename(tempcss)]
+                        if get_spec('compress'):
+                            cmd.extend(['-m', 'true'])
+                        try:
+                            chdir(td)
+                            do(cmd)
+                        finally:
+                            chdir(cwd)
+                        out(read(tempcss))
                 elif source.endswith('.sass') or source.endswith('.scss'):
                     cmd = ['sass']
                     if source.endswith('.scss'):
@@ -422,7 +454,7 @@ def jsliteral(v, enc=JSONEncoderForHTML().encode):
 
 def mismatch(s1, s2, source, existing):
     log.error(
-        "Mixed %s/%s source files are not compatible with source maps (%s + %s)"
+        "Mixed %s and %s sources are not compatible with source maps (%s + %s)"
         % (s1, s2, source, existing)
     )
     raise AppExit()
@@ -432,9 +464,28 @@ def set_uglify_defines(cmd, uglify_define):
         return
     if isinstance(uglify_define, basestring):
         cmd.extend(['--define', uglify_define])
+    elif isinstance(uglify_define, list):
+        cmd.extend(['--define', ';'.join(uglify_define)])
+    elif isinstance(uglify_define, dict):
+        parts = []
+        for key, val in uglify_define.items():
+            if isinstance(val, bool):
+                if val:
+                    val = 'true'
+                else:
+                    val = 'false'
+                parts.append('%s=%s' % (key, val))
+                continue
+            if isinstance(val, basestring) and val.startswith('$'):
+                _val = environ.get(val[1:], None)
+                if _val is None:
+                    exit("env variable %s not set for use by uglify.define variable %s" % (val, key))
+                parts.append('%s=%s' % (key, _val))
+                continue
+            parts.append('%s=%r' % (key, val))
+        cmd.extend(['--define', ';'.join(parts)])
     else:
-        for part in uglify_define:
-            cmd.extend(['--define', part])
+        exit("uglify.define option can not be %s" % type(uglify_define))
 
 class JSAsset(Asset):
     """Generator for JavaScript Assets."""
@@ -456,24 +507,16 @@ class JSAsset(Asset):
             for source in sources:
                 if isinstance(source, Raw):
                     exit("Raw source strings are not compatible with source maps")
-                if source.endswith('.ts'):
-                    if cs:
-                        mismatch("CoffeeScript", "TypeScript", source, cs)
-                    elif js:
-                        mismatch("JavaScript", "TypeScript", source, js)
-                    ts = source
-                elif source.endswith('.coffee'):
-                    if js:
-                        mismatch("CoffeeScript", "JavaScript", source, js)
-                    elif ts:
-                        mismatch("CoffeeScript", "TypeScript", source, ts)
+                if source.endswith('.coffee'):
                     cs = source
+                elif source.endswith('.ts'):
+                    ts = source
                 else:
-                    if cs:
-                        mismatch("CoffeeScript", "JavaScript", source, cs)
-                    elif ts:
-                        mismatch("JavaScript", "TypeScript", source, ts)
                     js = source
+                if ts and cs:
+                    mismatch("TypeScript", "CoffeeScript", ts, cs)
+                if ts and js:
+                    mismatch("TypeScript", "JavaScript", ts, js)
             self.cs, self.js, self.ts = cs, js, ts
             src_output = get_spec('sourcemaps.sourcepath')
             self.base_mapping = base_mapping = {}
@@ -519,7 +562,7 @@ class JSAsset(Asset):
         if self.sm_root:
             data['sourceRoot'] = self.sm_root
         sources = []; add_source = sources.append
-        if self.ts:
+        if self.cs or self.ts:
             base_mapping = self.base_mapping
             for source in data['sources']:
                 add_source(src_map[base_mapping[source]])
@@ -544,6 +587,20 @@ class JSAsset(Asset):
                 filename = basename(self.path)
                 if self.js:
                     cmd = ['uglifyjs'] + sources
+                # elif self.cs:
+                #     cmd = ['coffee', '-o', td, '-m']
+                #     if len(sources) > 1:
+                #         cmd.append('-j')
+                #     # if get_spec('bare'):
+                #     #     cmd.append('-b')
+                #     #     cs_base = ''
+                #     # else:
+                #     cs_base = splitext(basename(sources[0]))[0]
+                #     cmd.extend(sources)
+                #     do(cmd)
+                #     cmd[2] = 'coffee/foo'
+                #     print ' '.join(cmd)
+                #     cmd = ['uglifyjs', join(td, cs_base+'.js')]
                 elif self.ts:
                     ts_js_path = join(td, filename)
                     cmd = ['tsc', '-sourcemap', '--out', ts_js_path]
@@ -561,8 +618,15 @@ class JSAsset(Asset):
                     extend_opts(cmd, uglify)
                     set_uglify_defines(cmd, uglify_define)
                 elif get_spec('compress'):
-                    cmd.extend(['-c', '-m'])
+                    cmd.extend(['-c', 'warnings=false', '-m'])
                     set_uglify_defines(cmd, uglify_define)
+                # elif self.cs:
+                #     print 'hai'
+                #     self.sourcemap(
+                #         read(cs_js_path+'.js'), ts_js_path+'.map', filename+'.map',
+                #         src_map
+                #         )
+                #     return
                 elif self.ts:
                     self.sourcemap(
                         read(ts_js_path), ts_js_path+'.map', filename+'.map',
@@ -613,6 +677,7 @@ class JSAsset(Asset):
                     out(self.apply_template(read(source)))
                 else:
                     out(read(source))
+        # print ''.join(output)
         self.uglify(''.join(output), get_spec)
 
     def uglify(self, output, get_spec):
@@ -624,7 +689,7 @@ class JSAsset(Asset):
                 extend_opts(cmd, uglify)
                 set_uglify_defines(cmd, uglify_define)
             else:
-                cmd.extend(['-c', '-m'])
+                cmd.extend(['-c', 'warnings=false', '-m'])
                 set_uglify_defines(cmd, uglify_define)
             with tempdir() as td:
                 path = join(td, basename(self.path))
@@ -1052,7 +1117,7 @@ def main(argv=None):
     options, files = op.parse_args(argv)
 
     if options.version:
-        print 'assetgen 0.3.0'
+        print 'assetgen %s' % __release__
         sys.exit()
 
     if options.debug:
