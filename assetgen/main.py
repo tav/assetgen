@@ -15,7 +15,7 @@ from mimetypes import guess_type
 from optparse import OptionParser
 from os import chdir, environ, getcwd, makedirs, remove, stat, walk
 from os.path import basename, dirname, expanduser, isfile, isdir, join
-from os.path import realpath, split, splitext
+from os.path import realpath, relpath, split, splitext
 from posixpath import split as split_posix
 from pprint import pformat
 from re import compile as compile_regex
@@ -362,25 +362,17 @@ class CSSAsset(Asset):
                     out(source.text)
                 elif source.endswith('.js') or source.endswith('coffee'):
                     with tempdir() as td:
-                        tempout = join(td, basename(source))
+                        jsfile = source
                         if source.endswith('coffee'):
-                            js = do(['coffee', '-p', '-b', source])
-                            tempout = tempout[:-7] + '.js'
-                            jsfile = open(tempout, 'wb')
-                            jsfile.write(js)
-                            jsfile.close()
-                        else:
-                            copy(source, tempout)
-                        cwd = getcwd()
-                        tempcss = tempout[:-3] + '.css'
-                        cmd = ['absurd', '-s', basename(tempout), '-o', basename(tempcss)]
+                            do(['coffee', '-c', '-b', jsfile])
+                            jsfile = jsfile[:-7] + '.js'
+                        tempcss = join(td, basename(jsfile)[:-3] + '.css')
+                        cmd = ['absurd', '-s', relpath(jsfile), '-o', tempcss]
                         if get_spec('compress'):
                             cmd.extend(['-m', 'true'])
-                        try:
-                            chdir(td)
-                            do(cmd)
-                        finally:
-                            chdir(cwd)
+                        do(cmd)
+                        if source.endswith('.coffee'):
+                            remove(jsfile)
                         out(read(tempcss))
                 elif source.endswith('.sass') or source.endswith('.scss'):
                     cmd = ['sass']
