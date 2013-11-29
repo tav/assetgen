@@ -370,9 +370,11 @@ class CSSAsset(Asset):
                         cmd = ['absurd', '-s', relpath(jsfile), '-o', tempcss]
                         if get_spec('compress'):
                             cmd.extend(['-m', 'true'])
-                        do(cmd)
+                        resp = do(cmd)
                         if source.endswith('.coffee'):
                             remove(jsfile)
+                        if resp.startswith('Error:'):
+                            exit("Error running: %s\n%s" % (' '.join(cmd), resp))
                         out(read(tempcss))
                 elif source.endswith('.sass') or source.endswith('.scss'):
                     cmd = ['sass']
