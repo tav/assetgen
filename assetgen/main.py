@@ -267,7 +267,7 @@ register_handler('binary', BinaryAsset)
 # ------------------------------------------------------------------------------
 
 embed_regex = compile_regex(r'embed\("?([^\)]*)"?\)')
-find_embeds = embed_regex.findall
+# find_embeds = embed_regex.findall
 substitute_embeds = embed_regex.sub
 
 class CSSAsset(Asset):
