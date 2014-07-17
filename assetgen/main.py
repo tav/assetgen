@@ -2,6 +2,7 @@
 # See the Assetgen UNLICENSE file for details.
 
 """Asset generator for modern web app development."""
+import hashlib
 
 import os
 import sys
@@ -126,20 +127,22 @@ def read(filename):
     file.close()
     return content
 
-def newer(input, output, cache):
-    if input in cache:
-        input_mtime = cache[input]
-    else:
-        input_mtime = stat(input)[ST_MTIME]
-    if output in cache:
-        output_mtime = cache[output]
-    else:
-        try:
-            output_mtime = stat(output)[ST_MTIME]
-        except Exception:
-            return 1
+def newer(input, output, change_checker):
+    output_mtime = change_checker.get_old_mtime(output)
+    if output_mtime is None:
+        return True # Everything is newer than a non-existant file
+    input_mtime = change_checker.get_old_mtime(input)
+    if input_mtime is None:
+        return False # Deleted is not newer
     if input_mtime >= output_mtime:
-        return 1
+        return True
+    return False
+
+def any_newer(inputs, output, change_checker):
+    for input in inputs:
+        if newer(input, output, change_checker):
+            return input
+    return False
 
 def do(args, **kwargs):
     kwargs["exit_on_error"] = 0
@@ -210,6 +213,68 @@ def tempdir():
     finally:
         rmtree(path)
 
+
+def get_mtime(file):
+    try: return stat(file)[ST_MTIME]
+    except IOError: return None
+
+def get_hash(filename):
+    try:
+        sha1 = hashlib.sha1()
+        with open(filename,'rb') as f:
+            for chunk in iter(lambda: f.read(8192), b''):
+                sha1.update(chunk)
+        return sha1.digest()
+    except IOError:
+        return None
+
+class FileChangeDetector(object):
+    def __init__(self):
+        self.old_mtimes = {}
+        self.old_hashes = {}
+        self.new_hashes = {}
+
+    def _get_key(self, file):
+        """
+        Get the hash and mtime of a file.  This avoids re-hashing the file if the file's mtime hasn't
+        changed since it was last checked
+        """
+        mtime = get_mtime(file)
+        hash, old_mtime = self.old_hashes.get(file, (None,None))
+        if old_mtime != mtime:
+            hash, new_mtime = self.new_hashes.get(file, (None, None))
+            if new_mtime != mtime:
+                hash = get_hash(file)
+                self.new_hashes[file] = (hash, mtime)
+        return hash, mtime
+
+    def mark_clean(self, file):
+        hash, mtime = self._get_key(file)
+        self.old_mtimes[file] = mtime
+        self.old_hashes[file] = (hash, mtime)
+
+    def is_changed(self, file):
+        """
+        Return true if a file has changed since the last call to mark_clean() for that file.
+        """
+        hash, mtime = self._get_key(file)
+        return (hash, mtime) == self.old_hashes.get(file, (None, None))
+
+    def hash_files(self, files):
+        sha1 = hashlib.sha1()
+        for file in files:
+            hash, mtime = self._get_key(file)
+            sha1.update(str(hash))
+        return sha1.hexdigest()
+
+    def get_old_mtime(self, file):
+        try: return self.old_mtimes[file]
+        except KeyError:
+            mtime = get_mtime(file)
+            self.old_mtimes[file] = mtime
+            return mtime
+
+
 # ------------------------------------------------------------------------------
 # Raw Text Class
 # ------------------------------------------------------------------------------
@@ -240,7 +305,7 @@ class Asset(object):
     __repr__ = __str__
 
     def emit(self, path, content, extension=''):
-        return self.runner.emit(self.path, path, content, extension)
+        return self.runner.emit(self.path, self.depends, path, content, extension)
 
     def is_fresh(self):
         return self.runner.is_fresh(self.path, self.depends)
@@ -932,21 +997,25 @@ class AssetGenRunner(object):
             log.info("Removing: %s" % data_path)
             remove(data_path)
 
-    def emit(self, key, path, content, extension=''):
+    def apply_hash(self, directory, filename, depends):
+        if self.prereq or not self.hashed:
+            return None, None
+
+        digest = self.change_checker.hash_files(depends)
+        output_path = join(directory, self.output_template % {
+            'hash': digest,
+            'filename': filename
+            })
+        return digest, output_path
+
+    def emit(self, key, depends, path, content, extension=''):
         directory, filename = split(path)
         if extension:
             root, ext = splitext(filename)
             filename = root + extension + ext
             path = join(directory, filename)
-        if (not self.prereq) and self.hashed:
-            digest = sha1(content).hexdigest()
-            output_path = join(directory, self.output_template % {
-                'hash': digest,
-                'filename': filename
-                })
-        else:
-            digest = None
-            output_path = path
+        digest, output_path = self.apply_hash(directory, filename, depends)
+
         if self.prereq:
             directory = join(self.base_dir, directory)
             real_output_path = join(self.base_dir, output_path)
@@ -983,17 +1052,15 @@ class AssetGenRunner(object):
     def is_fresh(self, key, depends):
         if self.force:
             return
-        mtime_cache = self.mtime_cache
+        change_checker = self.change_checker
         if self.prereq:
             output = join(self.base_dir, key)
             if not isfile(output):
-                self.prereq_data.pop(key, None)
+                log.debug('%r not fresh, missing output %r', key, output)
                 return
-            for dep in depends:
-                if newer(dep, output, mtime_cache):
-                    self.prereq_data.pop(key, None)
-                    return
-            if newer(self.config_path, output, mtime_cache):
+            newer_input = any_newer(depends + [self.config_path], output, change_checker)
+            if newer_input:
+                log.debug('%r not fresh, %r is newer', output, newer_input)
                 self.prereq_data.pop(key, None)
                 return
             return 1
@@ -1005,15 +1072,25 @@ class AssetGenRunner(object):
             output = join(output_dir, output)
             if not isfile(output):
                 self.output_data.pop(key)
+                log.debug('%r not fresh, missing output %r', key, output)
                 return
         output = join(output_dir, list(paths).pop())
-        for dep in depends:
-            if newer(dep, output, mtime_cache):
+
+        # When we have hashed outputs we can use file content hashes to decide if we need to rebuild instead of mtimes
+        if self.hashed:
+            directory, filename = split(key)
+            digest, output_path = self.apply_hash(directory, filename, depends)
+            if output_path not in paths:
+                log.debug('%r not fresh, hash has changed (new filename is %r)', key, output_path)
+                return False
+        else:
+            # No hashes, check for "newer" mtimes
+            newer_input = any_newer(depends + [self.config_path], output, change_checker)
+            if newer_input:
                 self.output_data.pop(key)
+                log.debug('%r not fresh, %r is newer than %r', output, newer_input, output)
                 return
-        if newer(self.config_path, output, mtime_cache):
-            self.output_data.pop(key)
-            return
+
         return 1
 
     def run(self):
@@ -1029,7 +1106,7 @@ class AssetGenRunner(object):
         else:
             change = False
         self.manifest_changed = False
-        self.mtime_cache = {}
+        self.change_checker = FileChangeDetector()
         self.prereq = True
         for asset in self.prereqs:
             if not asset.is_fresh():
@@ -1151,9 +1228,10 @@ def main(argv=None):
     files = [realpath(file) for file in files]
 
     if watch:
-        mtime_cache = {}
+        change_checker = FileChangeDetector()
         for file in files:
-            mtime_cache[file] = stat(file)[ST_MTIME]
+            change_checker.mark_clean(file)
+
 
     generators = [AssetGenRunner(file, profile, force, nuke) for file in files]
 
@@ -1174,10 +1252,9 @@ def main(argv=None):
                 for assetgen in generators:
                     assetgen.run()
                 for idx, file in enumerate(files):
-                    mtime = stat(file)[ST_MTIME]
-                    if mtime > mtime_cache[file]:
-                        mtime_cache[file] = mtime
+                    if change_checker.is_changed(file):
                         generators[idx] = AssetGenRunner(file, profile, force)
+                        change_checker.mark_clean(file)
                 sleep(1)
             except AppExit:
                 sleep(3)
