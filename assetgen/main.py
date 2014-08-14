@@ -387,8 +387,8 @@ class CSSAsset(Asset):
         try:
             data = open(filepath, 'rb').read()
         except IOError:
-            log.error("!! Couldn't find %s for %s" % (
-                filepath, self.path
+            log.error("!! Couldn't find %r for %r in %r" % (
+                filepath, self.path, self.embed_path_root
                 ))
             return self.cache.setdefault(
                 path,
@@ -1081,6 +1081,7 @@ class AssetGenRunner(object):
             directory, filename = split(key)
             digest, output_path = self.apply_hash(directory, filename, depends)
             if output_path not in paths:
+                self.output_data.pop(key)
                 log.debug('%r not fresh, hash has changed (new filename is %r)', key, output_path)
                 return False
         else:
