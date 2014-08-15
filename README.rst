@@ -109,6 +109,7 @@ file, e.g.
 
    output.directory: appengine/static
    output.hashed: true
+   output.gzip: true
    output.manifest: appengine/assets.json
 
    profile.dev:
@@ -128,6 +129,13 @@ And, whilst you are developing, you can use the ``--watch`` command-line
 parameter to tell ``assetgen`` to monitor file changes and rebuild all
 appropriate files. Watch also monitors changes to the ``assetgen.yaml`` file,
 so you can update the config without having to restart ``assetgen``.
+
+``output.hashed: true`` will put a unique file hash in the file name so that you
+can set a long expiry date for HTTP caching on those files
+
+``output.gzip: true`` will write an additional file with ``.gz`` on the end for
+use with web servers that support sending a pre-compressed file, such as nginx's
+``gzip_static`` module.
 
 During development, one often runs ``--watch`` with a dev profile, e.g.
 

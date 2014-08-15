@@ -80,7 +80,8 @@ DEFAULTS = {
     'output.hashed': False,
     'output.manifest': None,
     'output.manifest.force': False,
-    'output.template': '%(hash)s-%(filename)s'
+    'output.template': '%(hash)s-%(filename)s',
+    'output.gzip' : False
     }
 
 DOWNLOADS_PATH = environ.get(
@@ -388,7 +389,7 @@ class CSSAsset(Asset):
             data = open(filepath, 'rb').read()
         except IOError:
             log.error("!! Couldn't find %r for %r in %r" % (
-                filepath, self.path, self.embed_path_root
+                realpath(filepath), self.path, realpath(self.embed_path_root)
                 ))
             return self.cache.setdefault(
                 path,
@@ -844,6 +845,7 @@ class AssetGenRunner(object):
         self.output_dir = output_dir = join(base_dir, output_dir)
         self.output_template = config['output.template']
         self.hashed = config['output.hashed']
+        self.gzip = config['output.gzip']
 
         manifest_path = config['output.manifest']
         if manifest_path:
@@ -1031,11 +1033,20 @@ class AssetGenRunner(object):
             self.prereq_data.setdefault(key, set()).add(path)
             log.info("Generated prereq: %s" % output_path)
             return output_path
-        self.output_data.setdefault(key, set()).add(output_path)
+        outputs = self.output_data.setdefault(key, set())
+        outputs.add(output_path)
         if digest:
             log.info("Generated output: %s (%s)" % (path, digest[:6]))
         else:
             log.info("Generated output: %s" % path)
+
+        if self.gzip:
+            import gzip
+            gzip_output_path = real_output_path+'.gz'
+            with gzip.open(gzip_output_path, 'wb') as f:
+                f.write(content)
+            outputs.add(gzip_output_path)
+
         manifest = self.manifest
         if path in manifest:
             ex_output_path = manifest[path]
@@ -1045,6 +1056,11 @@ class AssetGenRunner(object):
             if isfile(ex_path):
                 remove(ex_path)
                 log.info(".. Removed stale: %s" % ex_output_path)
+            ex_path_gz = ex_path + '.gz'
+            if isfile(ex_path_gz):
+                remove(ex_path_gz)
+                log.info(".. Removed stale: %s.gz" % ex_output_path)
+
         manifest[path] = output_path
         self.manifest_changed = 1
         return output_path
