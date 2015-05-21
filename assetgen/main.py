@@ -1173,12 +1173,12 @@ def main(argv=None):
             try:
                 for assetgen in generators:
                     assetgen.run()
+                sleep(1)
                 for idx, file in enumerate(files):
                     mtime = stat(file)[ST_MTIME]
                     if mtime > mtime_cache[file]:
                         mtime_cache[file] = mtime
                         generators[idx] = AssetGenRunner(file, profile, force)
-                sleep(1)
             except AppExit:
                 sleep(3)
             except KeyboardInterrupt:
