@@ -134,9 +134,7 @@ def newer(input, output, change_checker):
     input_mtime = change_checker.get_old_mtime(input)
     if input_mtime is None:
         return False # Deleted is not newer
-    if input_mtime >= output_mtime:
-        return True
-    return False
+    return input_mtime >= output_mtime
 
 def any_newer(inputs, output, change_checker):
     for input in inputs:
@@ -214,8 +212,10 @@ def tempdir():
         rmtree(path)
 
 def get_mtime(file):
-    try: return stat(file)[ST_MTIME]
-    except IOError: return None
+    try:
+        return stat(file)[ST_MTIME]
+    except IOError:
+        return None
 
 def get_hash(filename):
     try:
@@ -258,7 +258,7 @@ class FileChangeDetector(object):
         Return true if a file has changed since the last call to mark_clean() for that file.
         """
         hash, mtime = self._get_key(file)
-        return (hash, mtime) == self.old_hashes.get(file, (None, None))
+        return (hash, mtime) != self.old_hashes.get(file, (None, None))
 
     def hash_files(self, files):
         h = sha1()
@@ -769,7 +769,7 @@ class AssetGenRunner(object):
     manifest_path = None
     virgin = True
 
-    def __init__(self, path, profile='default', force=None, nuke=None):
+    def __init__(self, path, profile='default', force=None, checker=None, nuke=None):
 
         data_dir = join(
             gettempdir(), 'assetgen-%s' % sha1(path).hexdigest()[:12]
@@ -839,6 +839,7 @@ class AssetGenRunner(object):
         if not output_dir:
             exit("No value found for output.directory in %s." % path)
 
+        self.change_checker = checker
         self.output_dir = output_dir = join(base_dir, output_dir)
         self.output_template = config['output.template']
         self.hashed = config['output.hashed']
@@ -1089,7 +1090,8 @@ class AssetGenRunner(object):
                 return
         output = join(output_dir, list(paths).pop())
 
-        # When we have hashed outputs we can use file content hashes to decide if we need to rebuild instead of mtimes
+        # When we have hashed outputs we can use file content hashes to decide
+        # if we need to rebuild instead of mtimes
         if self.hashed:
             directory, filename = split(key)
             digest, output_path = self.apply_hash(directory, filename, depends)
@@ -1120,7 +1122,6 @@ class AssetGenRunner(object):
         else:
             change = False
         self.manifest_changed = False
-        self.change_checker = FileChangeDetector()
         self.prereq = True
         for asset in self.prereqs:
             if not asset.is_fresh():
@@ -1241,13 +1242,12 @@ def main(argv=None):
 
     files = [realpath(file) for file in files]
 
+    change_checker = FileChangeDetector()
     if watch:
-        change_checker = FileChangeDetector()
         for file in files:
             change_checker.mark_clean(file)
 
-
-    generators = [AssetGenRunner(file, profile, force, nuke) for file in files]
+    generators = [AssetGenRunner(file, profile, force, change_checker, nuke) for file in files]
 
     if nuke:
         if isdir(DOWNLOADS_PATH):
@@ -1267,7 +1267,7 @@ def main(argv=None):
                     assetgen.run()
                 for idx, file in enumerate(files):
                     if change_checker.is_changed(file):
-                        generators[idx] = AssetGenRunner(file, profile, force)
+                        generators[idx] = AssetGenRunner(file, profile, force, change_checker)
                         change_checker.mark_clean(file)
                 sleep(1)
             except AppExit:
